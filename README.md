@@ -1,12 +1,12 @@
 # THUMT: An Open Source Toolkit for Neural Machine Translation
 ## Contents
-* [Introduction](#Introduction)
-* [User Manual](#User-Manual)
-* [Documentation](#Documentation)
-* [License](#License)
-* [Citation](#Citation)
-* [Development Team](#Development-Team)
-* [Contact](#Contact)
+* [Introduction](#introduction)
+* [User Manual](#user-manual)
+* [Documentation](#documentation)
+* [License](#license)
+* [Citation](#citation)
+* [Development Team](#development-Team)
+* [Contact](#contact)
 
 ## Introduction
 
@@ -37,7 +37,7 @@ The source code is dual licensed. Open source licensing is under the [BSD-3-Clau
 
 If you are running the THUMT pipeline, please cite the following paper:
 
-> Jiacheng Zhang, Yanzhuo Ding, Shiqi Shen, Yong Cheng, Maosong Sun, Huanbo Luan, Yang Liu. 2017. THUMT: An Open Source Toolkit for Neural Machine Translation. Technical Report. [[paper]()]
+> Jiacheng Zhang, Yanzhuo Ding, Shiqi Shen, Yong Cheng, Maosong Sun, Huanbo Luan, Yang Liu. 2017. THUMT: An Open Source Toolkit for Neural Machine Translation. Technical Report. [[paper]]
 
 ## Development Team
 
