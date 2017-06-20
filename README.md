@@ -36,7 +36,7 @@ This [documentation](http://thumt.thunlp.org/static/document/index.html) provide
 
 ## License
 
-The source code is dual licensed. Open source licensing is under the [BSD-3-Clause](https://opensource.org/licenses/BSD-3-Clause), which allows many free uses. For commercial licensing, please email [thumt17@gmail.com](mailto:thumt17@gmail.com).
+The source code is dual licensed. Open source licensing is under the [BSD-3-Clause](https://opensource.org/licenses/BSD-3-Clause), which allows free use for research purposes. For commercial licensing, please email [thumt17@gmail.com](mailto:thumt17@gmail.com).
 
 ## Citation
 
