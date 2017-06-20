@@ -3,7 +3,6 @@
 * [Introduction](#Introduction)
 * [User Manual](#User-Manual)
 * [Documentation](#Documentation)
-* [Downloads](#Downloads)
 * [License](#License)
 * [Citation](#Citation)
 * [Development Team](#Development-Team)
@@ -30,18 +29,6 @@ This [user manual](/static/THUMT.pdf) describes how to install and use THUMT.
 
 This [documentation](/static/document/index.html) provides detailed information about the functions in THUMT.
 
-## Downloads
-
-**Stable version**
-
-|Link |Size |Description | Date|
-|:------------|:------------|:-------------|:-------------|
-| [THUMT-v1.0.tar.gz](/user) | 555K | the package contains the source code of the system and example datasets | 2017-06-21 |
-
-**Latest version**
-
-Please visit [GitHub](https://github.com/thumt/THUMT) to obtain the latest version.
-
 ## License
 
 The source code is dual licensed. Open source licensing is under the [BSD-3-Clause](https://opensource.org/licenses/BSD-3-Clause), which allows many free uses. For commercial licensing, please email [thumt17@gmail.com](mailto:thumt17@gmail.com).
@@ -52,7 +39,7 @@ If you are running the THUMT pipeline, please cite the following paper:
 
 > Jiacheng Zhang, Yanzhuo Ding, Shiqi Shen, Yong Cheng, Maosong Sun, Huanbo Luan, Yang Liu. 2017. THUMT: An Open Source Toolkit for Neural Machine Translation. Technical Report. [[paper]()]
 
-## Authors
+## Development Team
 
 Project leaders: [Maosong Sun](http://www.thunlp.org/site2/index.php/zh/people?id=16), [Yang Liu](http://nlp.csai.tsinghua.edu.cn/~ly/), Huanbo Luan
 
@@ -61,3 +48,8 @@ Project members: Jiacheng Zhang, Yanzhuo Ding, [Shiqi Shen](http://nlp.csai.tsin
 ## Contact
 
 If you have questions, suggestions and bug reports, please email [thumt17@gmail.com](mailto:thumt17@gmail.com).
+
+
+
+
+
