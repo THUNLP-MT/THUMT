@@ -73,7 +73,7 @@ if __name__ == '__main__':
 	optional = ''
 	if unkreplace == 1:
 		optional += ' -unk '
-	cmd = 'THEANO_FLAGS=floatX=float32, device=' + device + \
+	cmd = 'THEANO_FLAGS=floatX=float32,device=' + device + \
 	      ' python ' + code_dir + '/translate.py' + \
 		  ' -i ' + test_src_file + \
 		  ' -o ' + test_trg_file + \
