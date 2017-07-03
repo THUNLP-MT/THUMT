@@ -6,8 +6,9 @@
 * [Documentation](#documentation)
 * [License](#license)
 * [Citation](#citation)
-* [Development Team](#development-Team)
+* [Development Team](#development-team)
 * [Contact](#contact)
+* [FAQ](#faq)
 
 ## Introduction
 
@@ -54,7 +55,13 @@ Project members: Jiacheng Zhang, Yanzhuo Ding, [Shiqi Shen](http://nlp.csai.tsin
 
 If you have questions, suggestions and bug reports, please email [thumt17@gmail.com](mailto:thumt17@gmail.com).
 
+## FAQ
 
+Q: Does THUMT support the latest version of Theano?
+
+A: Yes. THUMT also supports Theano 0.9.0 released on 2017/03/20. We notice that there is a small problem with building the optimizer. Fortunately, this error does not affect running THUMT. We are working on solving this problem.
+
+![thumt_theano](https://user-images.githubusercontent.com/7431362/27778674-5acd6ea4-5fef-11e7-8b4b-1a8e9b464d5a.png)
 
 
 
