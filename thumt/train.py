@@ -132,6 +132,7 @@ if __name__ == '__main__':
 					if data.last_improved() >= config['try_iter']:
 						logging.info('No improvement for %d iterations. Stop training.\n' % data.last_improved())
 						break
+					data.save_status(config['checkpoint_status'])
 
 			# updating gradients
 			upst = time.time()
