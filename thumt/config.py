@@ -37,6 +37,7 @@ def config():
 	config['dim_emb_src'] = 620 # word embedding dimension
 	config['dim_emb_trg'] = 620
 	config['maxout'] = 2 # maxout count
+	config['dropout_maxout'] = 0. # dropout rate for maxout layer
 
 	# training
 	config['maxlength'] = 50 # max sentence length

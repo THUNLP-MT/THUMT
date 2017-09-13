@@ -37,7 +37,7 @@ class model(object):
 		sample, probs = self.get_sample(x.reshape((x.shape[0],1)), length, n_samples)
 		return numpy.asarray(sample, dtype = 'int64').transpose(), probs
 
-	def translate(self, x, beam_size = 10, return_array = False):
+	def translate(self, x, beam_size = 10, return_array = False, length_norm = True):
 		'''
 			Decode with beam search.
 
@@ -46,6 +46,9 @@ class model(object):
 
 			:type beam_size: int
 			:param beam_size: beam size
+
+			:type length_norm: bool
+			:param length_norm: if true, the cost of translations are divided by the sentence length 
 
 			:returns: a numpy array, the indexed translation result
 		'''
@@ -70,7 +73,11 @@ class model(object):
 			if l < x.shape[0] / 2:
 				losses[:, self.config['index_eos_trg']] = numpy.inf
 			for i in range(len(loss)):
-				losses[i] += loss[i]
+				if length_norm:
+					losses[i] += (loss[i]*l)
+					losses[i] /= (l+1)
+				else:
+					losses[i] += loss[i]
 
 			# get the n-best partial translations
 			best_index_flatten = numpy.argpartition(losses.flatten(), beam)[:beam]
@@ -282,7 +289,7 @@ class RNNsearch(model):
 			config['dim_emb_src'], config['dim_rec_enc'], verbose = verbose)
 		self.decoderGRU = self.creater.createGRU_attention(self.name + 'GRU_dec',
 			config['dim_emb_trg'], 2 * config['dim_rec_enc'],
-			config['dim_rec_dec'], config['num_vocab_trg'], verbose = verbose)
+			config['dim_rec_dec'], config['num_vocab_trg'], dropout = config['dropout_maxout'], verbose = verbose)
 		self.initer = self.creater.createFeedForwardLayer(self.name + 'initer',
 			config['dim_rec_enc'], config['dim_rec_dec'], offset = True)
 

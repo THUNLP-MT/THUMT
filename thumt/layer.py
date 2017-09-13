@@ -5,6 +5,7 @@ from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
 import cPickle
 import tools
+import logging
 
 class Layer(object):
 	'''
@@ -237,13 +238,18 @@ class GatedRecurrentLayer_attention(Layer):
 		:type maxout: int
 		:param maxout: the number of maxout parts
 
+		:type dropout: float
+		:param dropout: the probability of dropout
+
 		:type verbose: bool
 		:param verbose: only set to True on visualization
+		
 	'''
 
 	def __init__(self, name, dim_in, dim_c, dim, dim_class, 
 					active = tensor.tanh,
 					maxout = 2,
+					dropout = 0.,
 					verbose = False):
 		'''
 			Initialize the parameters of the layer
@@ -252,6 +258,7 @@ class GatedRecurrentLayer_attention(Layer):
 		self.active = active
 		self.dim = dim
 		self.maxout = maxout
+		self.dropout = dropout
 		self.verbose = verbose
 		self.readout_emb = tools.init_weight((dim_in, dim), name + '_readoutemb')
 		self.input_emb = tools.init_weight((dim_in, dim), name + '_inputemb')
@@ -309,6 +316,7 @@ class GatedRecurrentLayer_attention(Layer):
 					tensor.dot(state, self.readout_hidden)
 		readout += self.readout_offset
 		maxout = tools.maxout(readout, self.maxout)
+		maxout *= 1 - self.dropout
 
 		outenergy = tensor.dot(maxout, self.probs_emb)
 		outenergy = tensor.dot(outenergy, self.probs)
@@ -484,6 +492,9 @@ class GatedRecurrentLayer_attention(Layer):
 		readout = readout_c + readout_h + state_in_prev
 		readout = readout.reshape((readout.shape[0] * readout.shape[1], readout.shape[2]))
 		maxout = tools.maxout(readout, self.maxout)
+		if self.dropout > 0.:
+			logging.info('dropout ratio: ' + str(self.dropout))
+			maxout = tools.dropout(maxout, self.dropout)
 
 		outenergy = tensor.dot(maxout, self.probs_emb)
 		outenergy_1 = outenergy

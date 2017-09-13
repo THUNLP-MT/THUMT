@@ -58,6 +58,17 @@ def init_zeros(size, shared = True):
 	else:
 		return t
 
+def dropout(input, drop_rate):
+	'''
+		The dropout operation
+
+		:type drop_rate: float
+		:param drop_rate: the probability of dropout
+	'''
+	trng = RandomStreams()
+	output = input * trng.binomial(input.shape, n = 1, p = 1 - drop_rate, dtype = input.dtype)
+	return output
+
 def maxout(input, max_num = 2):
 	'''
 		Build the computational graph of maxout operation.

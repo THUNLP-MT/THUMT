@@ -29,6 +29,9 @@ def help():
 		'Optional arguments:\n' + \
 		'  --test-ref-file <file>      test set, reference file(s)\n' + \
 		'  --replace-unk               replacing unknown words\n' + \
+		'                                0: off (default)\n' + \
+		'                                1: on\n' + \
+		'  --length-normalization      use length normalization\n' + \
 		'                                0: off\n' + \
 		'                                1: on (default)\n' + \
 		'  --help                      displaying helping message\n'
@@ -45,6 +48,7 @@ if __name__ == '__main__':
 	device = ''         # the device for running the script
 	test_ref_file = ''  # test, reference file(s)
 	unkreplace = 0      # replace unknown words
+	length_norm = 1     # length normalization
 	# analyze command-line arguments
 	i = 1
 	while i < len(sys.argv):
@@ -59,7 +63,9 @@ if __name__ == '__main__':
 		elif sys.argv[i] == '--test-ref-file':
 			test_ref_file = sys.argv[i + 1]
 		elif sys.argv[i] == '--replace-unk':
-			unkreplace = sys.argv[i + 1]
+			unkreplace = int(sys.argv[i + 1])
+		elif sys.argv[i] == '--length-normalization':
+			length_norm = int(sys.argv[i + 1])
 		else:
 			help()
 		i += 2
@@ -73,6 +79,8 @@ if __name__ == '__main__':
 	optional = ''
 	if unkreplace == 1:
 		optional += ' -unk '
+	if length_norm == 1:
+		optional += ' -length-norm '
 	cmd = 'THEANO_FLAGS=floatX=float32,device=' + device + \
 	      ' python ' + code_dir + '/translate.py' + \
 		  ' -i ' + test_src_file + \

@@ -36,8 +36,8 @@ def help():
 		'  --mono-trg-file <file>          monilingual training set, target file\n' + \
 		'  --init-model-file <file>        initialization model file\n' + \
 		'  --replace-unk {0, 1}            replacing unknown words\n' + \
-		'                                    0: off\n' + \
-		'                                    1: on (default)\n' + \
+		'                                    0: off (default)\n' + \
+		'                                    1: on\n' + \
 		'  --save-all-models {0, 1}        saving all intermediate models:\n' + \
 		'                                    0: only save the best model (default)\n' + \
 		'                                    1: save all intermediate models\n' + \
@@ -125,6 +125,8 @@ def convert_config_format(training_criterion, \
 			d['dim_rec_enc'] = int(line.split(']')[-1].strip())
 		elif '[decoder hidden layer dimension]' in line:
 			d['dim_rec_dec'] = int(line.split(']')[-1].strip())
+		elif '[dropout ratio]' in line:
+			d['dropout_maxout'] = float(line.split(']')[-1].strip())
 		elif '[MRT sample size]' in line:
 			d['sampleN'] = int(line.split(']')[-1].strip()) 
 		elif '[MRT length ratio limit]' in line:
@@ -272,11 +274,11 @@ if __name__ == '__main__':
 	if debug == 1:
 		optional += ' --debug'
 	if save_all == 1:
-		optional += ' --save-all-models'
+		optional += ' --save-all'
 	if unkreplace == 1:
 		optional += ' --map mapping.pkl'
 	os.system('THEANO_FLAGS=floatX=float32,device=' + device + \
-			  ',lib.cnmem=0.5 python ' + code_dir + \
+			  ',lib.cnmem=0.9 python ' + code_dir + \
 			  '/train.py -c _config' + optional)
 	# clean
 	os.system('rm _config')
