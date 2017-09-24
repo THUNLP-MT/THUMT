@@ -214,7 +214,6 @@ if __name__ == "__main__":
 		else:
 			print >> output, data.print_target(result)
 		num += 1
-		print num
 		if num % 100 == 0:
 			ed = time.time()
 			print num, 'sentences translated, average', (ed - st) / num, 'seconds per sentence'

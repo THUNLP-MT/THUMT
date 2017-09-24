@@ -75,6 +75,7 @@ def config():
 	config['beta1_adam'] = 0.9
 	config['beta2_adam'] = 0.999
 	config['eps_adam'] = 1e-8
+	config['decay_adam'] = 1.
 
 	# MRT
 	config['MRT'] = False 

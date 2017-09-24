@@ -5,7 +5,7 @@ import os
 import types
 import datetime
 
-root_dir = '/data/disk1/private/ly/THUMT'
+root_dir = '/home/zhangjiacheng/git/THUMT_170913'
 code_dir = root_dir + '/thumt'
 
 def version():
@@ -163,8 +163,10 @@ def convert_config_format(training_criterion, \
 			d['epsilon'] = float(line.split(']')[-1].strip())
 		elif '[Adam alpha]' in line:
 			d['alpha_adam'] = float(line.split(']')[-1].strip()) 
-		elif '[Adam alpha decay]' in line:
+		elif '[Adam alpha recover]' in line:
 			d['alphadecay_adam'] = float(line.split(']')[-1].strip()) 
+		elif '[Adam decay]' in line:
+			d['decay_adam'] = float(line.split(']')[-1].strip()) 
 		elif '[Adam beta1]' in line:
 			d['beta1_adam'] = float(line.split(']')[-1].strip())
 		elif '[Adam beta2]' in line:
@@ -278,10 +280,10 @@ if __name__ == '__main__':
 	if unkreplace == 1:
 		optional += ' --map mapping.pkl'
 	os.system('THEANO_FLAGS=floatX=float32,device=' + device + \
-			  ',lib.cnmem=0.9 python ' + code_dir + \
+			  ',lib.cnmem=0.98 python ' + code_dir + \
 			  '/train.py -c _config' + optional)
 	# clean
-	os.system('rm _config')
+	# os.system('rm _config')
 	# show training time
 	te = datetime.datetime.now()
 	print 'The training started at ' + tb.strftime("%Y-%m-%d %H:%M:%S") + \

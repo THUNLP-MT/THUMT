@@ -53,7 +53,7 @@ class adam(optimizer):
 		self.beta1t = theano.shared(numpy.float32(config['beta1_adam']))
 		self.beta2t = theano.shared(numpy.float32(config['beta2_adam']))
 
-	def build(self, cost, inp):
+	def build(self, cost, inp, decay = 1.):
 		grads_noclip = tensor.grad(cost, self.params)
 		grads, grad_norm = tools.clip(grads_noclip, self.config['clip'], params=self.params)
 
@@ -64,7 +64,7 @@ class adam(optimizer):
 		m_up = [(m, self.config['beta1_adam'] * m + (1. - self.config['beta1_adam']) * gr) for m, gr in zip(self.m, grads)]
 		v_up = [(v, self.config['beta2_adam'] * v + (1. - self.config['beta2_adam']) * (gr ** 2)) for v, gr in zip(self.v, grads)]
 		update_grads = theano.function(inp, [cost, grad_norm], updates=update_gc + m_up + v_up)
-		param_up = [(p, p - self.config['alpha_adam'] * (m / (1. - self.beta1t)) / (tensor.sqrt(v / (1. - self.beta2t)) + self.config['eps_adam'])) for p, m, v in zip(self.params, self.m, self.v)]
+		param_up = [(p, p - self.config['alpha_adam'] * dacay * (m / (1. - self.beta1t)) / (tensor.sqrt(v / (1. - self.beta2t)) + self.config['eps_adam'])) for p, m, v in zip(self.params, self.m, self.v)]
 		update_params = theano.function([],[], updates = update_ab + param_up)
 		return update_grads, update_params
 
@@ -83,7 +83,7 @@ class adam_slowstart(optimizer):
 		self.beta2t = theano.shared(numpy.float32(config['beta2_adam']))
 		self.alphadecayt = theano.shared(numpy.float32(config['alphadecay_adam']))
 
-	def build(self, cost, inp):
+	def build(self, cost, inp, decay = 1.):
 		grads_noclip = tensor.grad(cost, self.params)
 		grads, grad_norm = tools.clip(grads_noclip, self.config['clip'], params=self.params)
 
@@ -96,7 +96,7 @@ class adam_slowstart(optimizer):
 		v_up = [(v, self.config['beta2_adam'] * v + (1. - self.config['beta2_adam']) * (gr ** 2)) for v, gr in zip(self.v, grads)]
 		update_grads = theano.function(inp, [cost, grad_norm], updates=update_gc + m_up + v_up)
 		self.alphat = (1.0 - self.alphadecayt) * self.config['alpha_adam']
-		param_up = [(p, p - self.alphat * (m / (1. - self.beta1t)) / (tensor.sqrt(v / (1. - self.beta2t)) + self.config['eps_adam'])) for p, m, v in zip(self.params, self.m, self.v)]
+		param_up = [(p, p - self.alphat * decay * (m / (1. - self.beta1t)) / (tensor.sqrt(v / (1. - self.beta2t)) + self.config['eps_adam'])) for p, m, v in zip(self.params, self.m, self.v)]
 		update_params = theano.function([],[], updates = update_ab + param_up)
 		return update_grads, update_params
 

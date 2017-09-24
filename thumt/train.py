@@ -47,6 +47,8 @@ if __name__ == '__main__':
 
 	if config['MRT']:
 		config['batchsize'] = 1  # the mini-batch size must be 1 for MRT
+	if not 'adam' in config['optimizer']:
+		config['decay_adam'] = 1.
 
 	mapping = None
 	if args.map:
@@ -64,21 +66,40 @@ if __name__ == '__main__':
 	model.build()
 	logging.info('Done!\n')
 
-	logging.info('STEP 2.3: Building optimizer')
-	trainer = eval(config['optimizer'])(config, model.creater.params)
-	update_grads, update_params = trainer.build(model.cost, model.inputs)
-	logging.info('Done!\n')
-
 	# load checkpoint
-	logging.info('STEP 2.4: Loading checkpoint')
+	logging.info('STEP 2.3: Loading checkpoint')
 	data.load_status(config['checkpoint_status'])
 	model.load(config['checkpoint_model'])
+	logging.info('Done!\n')
+	if config['decay_adam'] < 1.:
+		num_epoch = data.num_iter * config['batchsize'] / data.num_sentences
+		decay_adam = config['decay_adam'] ** num_epoch
+		logging.info('Adam alpha: ' + str(config['alpha_adam'] * decay_adam))
+		
+
+	# building optimizer
+	logging.info('STEP 2.4: Building optimizer')
+	trainer = eval(config['optimizer'])(config, model.creater.params)
+	if config['decay_adam'] < 1.:
+		update_grads, update_params = trainer.build(model.cost, model.inputs, decay = decay_adam)
+	else:
+		update_grads, update_params = trainer.build(model.cost, model.inputs)
 	logging.info('Done!\n')
 
 	# train
 	logging.info('STEP 2.5: Online training')
 	while data.num_iter < config['max_iter']:
 		try:
+			# learning rate decay for Adam
+			if config['decay_adam'] < 1.:
+				num_epoch_new = data.num_iter * config['batchsize'] / data.num_sentences
+				if num_epoch_new > num_epoch:
+					decay_adam_new = config['decay_adam'] ** num_epoch_new
+					logging.info('Adam learning rate decay: ' + str(decay_adam) + ' to ' + str(decay_adam_new))
+					num_epoch = num_epoch_new
+					decay_adam = decay_adam_new
+					update_grads, update_params = trainer.build(model.cost, model.inputs, decay = decay_adam)
+
 			st = time.time()
 			data.num_iter += 1
 			trainx, trainy = data.next()

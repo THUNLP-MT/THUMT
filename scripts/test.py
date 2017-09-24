@@ -6,7 +6,7 @@ import re
 import string
 import types
 
-root_dir = '/data/disk1/private/ly/THUMT'
+root_dir = '/home/zhangjiacheng/git/THUMT_170913'
 code_dir = root_dir + '/thumt'
 
 def version():
@@ -22,7 +22,7 @@ def help():
 	'''Display helping message.'''
 	s = 'Usage: test.py [--help] ...\n' + \
 	    'Required arguments:\n' + \
-		'  --model-file <file>         model file\n' + \
+		'  --model-file <file>         model file(s)\n' + \
 		'  --test-src-file <file>      test set, source file\n' + \
 		'  --test-trg-file <file>      translation of test set\n' + \
 		'  --device {cpu, gpu0, ...}   the device for running the script\n' + \
@@ -42,18 +42,27 @@ if __name__ == '__main__':
 	# display version
 	version()
 	# initialize arguments
-	model_file = ''     # model file
+	model_file = ''     # model file, ensemble is applied for multiple models
 	test_src_file = ''  # test set, source file
 	test_trg_file = ''  # translation of test set
 	device = ''         # the device for running the script
 	test_ref_file = ''  # test, reference file(s)
 	unkreplace = 0      # replace unknown words
 	length_norm = 1     # length normalization
+	ensemble = True    # ensemble
 	# analyze command-line arguments
 	i = 1
 	while i < len(sys.argv):
 		if sys.argv[i] == '--model-file':
-			model_file = sys.argv[i + 1]
+			model_file = []
+			offset = 1
+			while i + offset < len(sys.argv) and sys.argv[i + offset][0:2] != '--':
+				model_file.append(sys.argv[i + offset])
+				offset += 1
+			i += len(model_file) - 1
+			if len(model_file) == 1:
+				model_file = model_file[0]
+				ensemble = False
 		elif sys.argv[i] == '--test-src-file':
 			test_src_file = sys.argv[i + 1]
 		elif sys.argv[i] == '--test-trg-file':
@@ -80,8 +89,15 @@ if __name__ == '__main__':
 	if unkreplace == 1:
 		optional += ' -unk '
 	if length_norm == 1:
-		optional += ' -length-norm '
-	cmd = 'THEANO_FLAGS=floatX=float32,device=' + device + \
+		optional += ' --length-norm '
+	if ensemble:
+		cmd = 'THEANO_FLAGS=floatX=float32,device=' + device + \
+	      ' python ' + code_dir + '/translate_ensemble.py' + \
+		  ' -i ' + test_src_file + \
+		  ' -o ' + test_trg_file + \
+		  ' -m ' + ' '.join(model_file) + optional
+	else:
+		cmd = 'THEANO_FLAGS=floatX=float32,device=' + device + \
 	      ' python ' + code_dir + '/translate.py' + \
 		  ' -i ' + test_src_file + \
 		  ' -o ' + test_trg_file + \
