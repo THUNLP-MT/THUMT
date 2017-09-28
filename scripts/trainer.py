@@ -288,4 +288,4 @@ if __name__ == '__main__':
 	te = datetime.datetime.now()
 	print 'The training started at ' + tb.strftime("%Y-%m-%d %H:%M:%S") + \
 		  ' and ended at ' + te.strftime("%Y-%m-%d %H:%M:%S") + \
-		  '. The total training time is %.2f hour(s).' % ((te - tb).seconds / 3600.0)
+		  '. The total training time is %.2f hour(s).' % ((te - tb).seconds / 3600.0 + 24. * (te - tb).days)
