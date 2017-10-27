@@ -1,4 +1,5 @@
 # coding=utf-8
+# Code modified from Tensor2Tensor library
 # Copyright 2017 The THUMT Authors
 
 import tensorflow as tf
@@ -224,11 +225,18 @@ def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
         flat_ids = tf.reshape(alive_seq, [batch_size * beam_size, -1])
 
         # (batch_size * beam_size, decoded_length)
-        flat_logits = symbols_to_logits_fn(flat_ids)
-        logits = tf.reshape(flat_logits, (batch_size, beam_size, -1))
+        flat_logits_list = symbols_to_logits_fn(flat_ids)
+        logits_list = [
+            tf.reshape(flat_logits, (batch_size, beam_size, -1))
+            for flat_logits in flat_logits_list
+        ]
 
         # Convert logits to normalized log probs
-        candidate_log_probs = log_prob_from_logits(logits)
+        candidate_log_probs = [
+            log_prob_from_logits(logits)
+            for logits in logits_list
+        ]
+        candidate_log_probs = tf.add_n(candidate_log_probs) / len(candidate_log_probs)
 
         # Multiply the probabilites by the current probabilites of the beam.
         # (batch_size, beam_size, vocab_size) + (batch_size, beam_size, 1)
@@ -423,7 +431,16 @@ def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
     return finished_seq, finished_scores
 
 
-def create_inference_graph(model_fn, features, params):
+def create_inference_graph(model_fns, features, params):
+    if isinstance(params, (list, tuple)):
+        params_list = params
+        params = params_list[0]
+    else:
+        params_list = [params]
+
+    if not isinstance(model_fns, (list, tuple)):
+        model_fns = [model_fn]
+
     decode_length = params.decode_length
     beam_size = params.beam_size
     top_beams = params.top_beams
@@ -434,7 +451,13 @@ def create_inference_graph(model_fn, features, params):
         features["target"] = tf.pad(decoded_ids[:, 1:], [[0, 0], [0, 1]])
         features["target_length"] = tf.fill([tf.shape(features["target"])[0]],
                                             tf.shape(features["target"])[1])
-        return model_fn(features, params)
+
+        results = []
+
+        for i, model_fn in enumerate(model_fns):
+            results.append(model_fn(features, params_list[i]))
+
+        return results
 
     batch_size = tf.shape(features["source"])[0]
     # append <bos> symbol

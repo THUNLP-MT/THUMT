@@ -2,56 +2,34 @@
 # coding=utf-8
 # Copyright 2017 The THUMT Authors
 
+import os
 import argparse
 import numpy as np
 import tensorflow as tf
 
+import thumt.utils as utils
 import thumt.models as models
 import thumt.data.dataset as dataset
 import thumt.data.vocab as vocabulary
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Training neural machine translation models",
-        usage="trainer.py [<args>] [-h | --help]"
-    )
+flags = tf.flags
+FLAGS = flags.FLAGS
 
-    # input files
-    parser.add_argument("--input", type=str, nargs=2,
-                        help="Path of source and target corpus")
-    parser.add_argument("--output", type=str, help="Path to saved models")
-    parser.add_argument("--vocabulary", type=str, nargs=2,
-                        help="Path of source and target vocabulary")
-    parser.add_argument("--validation", type=str,
-                        help="Path of validation file")
-    parser.add_argument("--references", type=str, nargs="+",
-                        help="Path of reference files")
-
-    # model and configuration
-    parser.add_argument("--model", type=str, required=True,
-                        help="Name of the model")
-    parser.add_argument("--parameters", type=str, default="",
-                        help="Additional hyper parameters")
-
-    return parser.parse_args()
+flags.DEFINE_string("source", "", "Path to source corpus")
+flags.DEFINE_string("target", "", "Path to target corpus")
+flags.DEFINE_string("output", "thumt_train", "Path used to save checkpoints")
+flags.DEFINE_string("model", "rnnsearch", "Name of the model to train")
+flags.DEFINE_string("parameters", "", "Optional parameters")
 
 
 def default_parameters():
     params = tf.contrib.training.HParams(
         input=None,
         output=None,
-        vocabulary=None,
-        validation=None,
-        references=None,
+        validation="",
+        references=[""],
         model=None,
-        # vocabulary specific
-        pad="<pad>",
-        bos="<bos>",
-        eos="<eos>",
-        unk="<unk>",
-        mapping=None,
-        append_eos=False,
         # default training hyper parameters
         num_threads=6,
         batch_size=128,
@@ -79,6 +57,25 @@ def default_parameters():
     return params
 
 
+def export_params(output_dir, name, params):
+    if not tf.gfile.Exists(output_dir):
+        tf.gfile.MkDir(output_dir)
+
+    # Save params as params.json
+    filename = os.path.join(output_dir, name)
+    with tf.gfile.Open(filename, "w") as fd:
+        fd.write(params.to_json())
+
+
+def collect_params(all_params, params):
+    collected = tf.contrib.training.HParams()
+
+    for k in params.values().iterkeys():
+        collected.add_hparam(k, getattr(all_params, k))
+
+    return collected
+
+
 def merge_parameters(params1, params2):
     params = tf.contrib.training.HParams()
 
@@ -97,14 +94,14 @@ def merge_parameters(params1, params2):
     return params
 
 
-def override_parameters(params, args):
-    params.input = args.input
-    params.output = args.output
-    params.parse(args.parameters)
+def override_parameters(params):
+    params.input = [FLAGS.source, FLAGS.target]
+    params.output = FLAGS.output
+    params.parse(FLAGS.parameters)
 
     params.vocabulary = {
-        "source": vocabulary.load_vocabulary(args.vocabulary[0]),
-        "target": vocabulary.load_vocabulary(args.vocabulary[1])
+        "source": vocabulary.load_vocabulary(params.source_vocabulary),
+        "target": vocabulary.load_vocabulary(params.target_vocabulary)
     }
     params.vocabulary["source"] = vocabulary.process_vocabulary(
         params.vocabulary["source"], params
@@ -122,8 +119,6 @@ def override_parameters(params, args):
             [params.pad, params.bos, params.eos, params.unk]
         )
     }
-    params.validation = args.validation
-    params.references = args.references
 
     return params
 
@@ -180,10 +175,18 @@ def session_config(params):
 
 def main(args):
     tf.logging.set_verbosity(tf.logging.INFO)
-    model_cls = models.get_model(args.model)
+    model_cls = models.get_model(FLAGS.model)
     params = default_parameters()
     params = merge_parameters(params, model_cls.model_parameters())
-    params = override_parameters(params, args)
+    params = override_parameters(params)
+
+    # Export all parameters and model specific parameters
+    export_params(params.output, "params.json", params)
+    export_params(
+        params.output,
+        "%s.json" % FLAGS.model,
+        collect_params(params, model_cls.model_parameters())
+    )
 
     # Build Graph
     with tf.Graph().as_default():
@@ -193,7 +196,14 @@ def main(args):
         # Build model
         initializer = get_initializer(params)
         model = model_cls(params)
-        loss = model.build_training_graph(features, initializer)
+
+        # Multi-GPU setting
+        sharded_losses = utils.parallel.parallel_model(
+            lambda f: model.build_training_graph(f, initializer),
+            features,
+            params.device_list
+        )
+        loss = tf.add_n(sharded_losses) / len(sharded_losses)
 
         # Create global step
         global_step = tf.train.get_or_create_global_step()
@@ -206,7 +216,7 @@ def main(args):
             v = all_weights[v_name]
             tf.logging.info("%s\tshape    %s", v.name[:-2].ljust(80),
                             str(v.shape).ljust(20))
-            v_size = int(np.prod(np.array(v.shape.as_list())))
+            v_size = np.prod(np.array(v.shape.as_list())).tolist()
             total_size += v_size
 
         tf.logging.info("Total trainable variables size: %d", total_size)
@@ -256,5 +266,4 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parsed_args = parse_args()
-    main(parsed_args)
+    tf.app.run()

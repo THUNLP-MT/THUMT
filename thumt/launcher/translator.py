@@ -12,29 +12,14 @@ import thumt.data.dataset as dataset
 import thumt.data.vocab as vocabulary
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Translate using neural machine translation models",
-        usage="translator.py [<args>] [-h | --help]"
-    )
+flags = tf.flags
+FLAGS = flags.FLAGS
 
-    # input files
-    parser.add_argument("--input", type=str, required=True,
-                        help="Path of input file")
-    parser.add_argument("--output", type=str, required=True,
-                        help="Path of output file")
-    parser.add_argument("--path", type=str, required=True,
-                        help="Path of trained models")
-    parser.add_argument("--vocabulary", type=str, nargs=2,
-                        help="Path of source and target vocabulary")
-
-    # model and configuration
-    parser.add_argument("--model", type=str, required=True,
-                        help="Name of the model")
-    parser.add_argument("--parameters", type=str, default="",
-                        help="Additional hyper parameters")
-
-    return parser.parse_args()
+flags.DEFINE_string("input", "", "Path to input file")
+flags.DEFINE_string("output", "", "Path to output file")
+flags.DEFINE_string("path", "thumt_train", "Path to checkpoints")
+flags.DEFINE_string("model", "rnnsearch", "Name of the model to train")
+flags.DEFINE_string("parameters", "", "Optional parameters")
 
 
 def default_parameters():
@@ -81,14 +66,25 @@ def merge_parameters(params1, params2):
     return params
 
 
-def override_parameters(params, args):
-    params.input = args.input
-    params.output = args.output
-    params.path = args.path
-    params.parse(args.parameters)
+def import_params(output_dir, name, params):
+    if not tf.gfile.Exists(output_dir):
+        tf.gfile.MkDir(output_dir)
+
+    # Save params as params.json
+    filename = os.path.join(output_dir, name)
+    with tf.gfile.Open(filename, "w") as fd:
+        fd.write(params.to_json())
+
+
+def override_parameters(params):
+    params.input = FLAGS.input
+    params.output = FLAGS.output
+    params.path = FLAGS.path
+    params.parse(FLAGS.parameters)
+
     params.vocabulary = {
-        "source": vocabulary.load_vocabulary(args.vocabulary[0]),
-        "target": vocabulary.load_vocabulary(args.vocabulary[1])
+        "source": vocabulary.load_vocabulary(params.vocabulary[0]),
+        "target": vocabulary.load_vocabulary(params.vocabulary[1])
     }
     params.vocabulary["source"] = vocabulary.process_vocabulary(
         params.vocabulary["source"], params
@@ -128,7 +124,8 @@ def main(args):
     model_cls = models.get_model(args.model)
     params = default_parameters()
     params = merge_parameters(params, model_cls.model_parameters())
-    params = override_parameters(params, args)
+
+    params = override_parameters(params)
 
     # Build Graph
     with tf.Graph().as_default():
@@ -185,5 +182,4 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parsed_args = parse_args()
-    main(parsed_args)
+    tf.app.run()

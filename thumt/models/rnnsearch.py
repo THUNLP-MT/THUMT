@@ -543,6 +543,21 @@ class RNNsearch(NMTModel):
         # This is the preferred method to be called during inference stage
         raise NotImplementedError("Not implemented")
 
+    def get_inference_fn(self):
+        # This function is costly.
+        def fn(features, _):
+            params = copy.copy(self.parameters)
+            params.dropout = 0.0
+            params.use_variational_dropout = False
+            params.label_smoothing = 0.0
+
+            with tf.variable_scope(self._scope):
+                logits = training_graph(features, None, params)
+
+            return logits
+
+        return fn
+
     @staticmethod
     def model_parameters():
         return model_parameters()

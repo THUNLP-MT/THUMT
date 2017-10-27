@@ -1,6 +1,5 @@
-# bleu.py
-# author: Playinf
-# email: playinf@stu.xmu.edu.cn
+# coding=utf-8
+# Copyright 2017 The THUMT Authors
 
 import math
 
