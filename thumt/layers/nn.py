@@ -5,8 +5,8 @@ import tensorflow as tf
 
 
 def linear(inputs, output_size, bias, concat=False, dtype=None, scope=None):
-    """ Linear layer
-
+    """
+    Linear layer
     :param inputs: A Tensor or a list of Tensors with shape [batch, input_size]
     :param output_size: An integer specify the output size
     :param bias: a boolean value indicate whether to use bias term
@@ -62,7 +62,8 @@ def linear(inputs, output_size, bias, concat=False, dtype=None, scope=None):
 
 def maxout(inputs, output_size, maxpart=2, use_bias=True, concat=True,
            dtype=None, scope=None):
-    """ Maxout layer
+    """
+    Maxout layer
     :param inputs: see the corresponding description of ``linear''
     :param output_size: see the corresponding description of ``linear''
     :param maxpart: an integer, the default value is 2
@@ -82,71 +83,15 @@ def maxout(inputs, output_size, maxpart=2, use_bias=True, concat=True,
     return output
 
 
-def attention(query, memories, bias, hidden_size, cache=None, reuse=None,
-              dtype=None, scope=None):
-    """ Standard attention layer
-
-    :param query: A tensor with shape [batch, key_size]
-    :param memories: A tensor with shape [batch, memory_size, key_size]
-    :param bias: A tensor with shape [batch, memory_size]
-    :param hidden_size: An integer
-    :param cache: A dictionary of precomputed value
-    :param reuse: A boolean value, whether to reuse the scope
-    :param dtype: An optional instance of tf.DType
-    :param scope: An optional string, the scope of this layer
-    :return: A tensor with shape [batch, value_size] and
-        a Tensor with shape [batch, memory_size]
-    """
-
-    with tf.variable_scope(scope or "attention", reuse=reuse,
-                           values=[query, memories, bias], dtype=dtype):
-        mem_shape = tf.shape(memories)
-        key_size = memories.get_shape().as_list()[-1]
-
-        if cache is None:
-            k = tf.reshape(memories, [-1, key_size])
-            k = linear(k, hidden_size, False, False, scope="k_transform")
-
-            if query is None:
-                return {"key": k}
-        else:
-            k = cache["key"]
-
-        q = linear(query, hidden_size, False, False, scope="q_transform")
-        k = tf.reshape(k, [mem_shape[0], mem_shape[1], hidden_size])
-
-        hidden = tf.tanh(q[:, None, :] + k)
-        hidden = tf.reshape(hidden, [-1, hidden_size])
-
-        # Shape: [batch, mem_size, 1]
-        logits = linear(hidden, 1, False, False, scope="logits")
-        logits = tf.reshape(logits, [-1, mem_shape[1]])
-
-        if bias is not None:
-            logits = logits + bias
-
-        alpha = tf.nn.softmax(logits)
-
-        outputs = {
-            "value": tf.reduce_sum(alpha[:, :, None] * memories, axis=1),
-            "weight": alpha,
-        }
-
-    return outputs
-
-
-def padding_to_mask(memory, name=None):
-    with tf.name_scope(name, default_name="padding_to_mask", values=[memory]):
-        reduced_mem = tf.reduce_sum(tf.abs(memory), axis=2)
-        return tf.to_float(tf.not_equal(reduced_mem, 0))
-
-
-def attention_bias(mask, inf=-1e9, name=None):
-    with tf.name_scope(name, default_name="attention_bias", values=[mask]):
-        return (1.0 - mask) * inf
-
-
 def layer_norm(inputs, epsilon=1e-6, dtype=None, scope=None):
+    """
+    Layer Normalization
+    :param inputs: A Tensor of shape [..., channel_size]
+    :param epsilon: A floating number
+    :param dtype: An optional instance of tf.DType
+    :param scope: An optional string
+    :returns: A Tensor with the same shape as inputs
+    """
     with tf.variable_scope(scope, default_name="layer_norm", values=[inputs],
                            dtype=dtype):
         channel_size = inputs.get_shape().as_list()[-1]

@@ -30,7 +30,7 @@ def shortest_length(references):
 
 def modified_precision(candidate, references, n):
     tngrams = len(candidate) + 1 - n
-    counts = Counter([tuple(candidate[i : i + n]) for i in range(tngrams)])
+    counts = Counter([tuple(candidate[i:i+n]) for i in range(tngrams)])
 
     if len(counts) == 0:
         return 0, 0
@@ -38,7 +38,7 @@ def modified_precision(candidate, references, n):
     max_counts = {}
     for reference in references:
         rngrams = len(reference) + 1 - n
-        ngrams = [tuple(reference[i : i + n]) for i in range(rngrams)]
+        ngrams = [tuple(reference[i:i+n]) for i in range(rngrams)]
         ref_counts = Counter(ngrams)
         for ngram in counts:
             mcount = 0 if ngram not in max_counts else max_counts[ngram]
@@ -68,11 +68,9 @@ def brevity_penalty(trans, refs, mode="closest"):
     return math.exp(min(0, 1.0 - bp_r / bp_c))
 
 
-# trans: a list of tokenized sentence
-# refs: a list of list of tokenized reference sentences
 def bleu(trans, refs, bp="closest", smooth=False, n=4, weights=None):
-    p_norm = [0 for i in range(n)]
-    p_denorm = [0 for i in range(n)]
+    p_norm = [0 for _ in range(n)]
+    p_denorm = [0 for _ in range(n)]
 
     for candidate, references in zip(trans, refs):
         for i in range(n):
@@ -80,7 +78,7 @@ def bleu(trans, refs, bp="closest", smooth=False, n=4, weights=None):
             p_norm[i] += ccount
             p_denorm[i] += tcount
 
-    bleu_n = [0 for i in range(n)]
+    bleu_n = [0 for _ in range(n)]
 
     for i in range(n):
         # add one smoothing
@@ -102,6 +100,6 @@ def bleu(trans, refs, bp="closest", smooth=False, n=4, weights=None):
 
     bp = brevity_penalty(trans, refs, bp)
 
-    bleu = bp * math.exp(log_precision)
+    score = bp * math.exp(log_precision)
 
-    return bleu
+    return score

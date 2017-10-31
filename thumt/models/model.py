@@ -8,26 +8,23 @@ class NMTModel(object):
         self._scope = scope
         self._params = params
 
-    def build_training_graph(self, features, initializer):
+    def get_training_func(self, initializer):
         raise NotImplementedError("Not implemented")
 
-    def build_evaluation_graph(self, features):
+    def get_evaluation_func(self):
         raise NotImplementedError("Not implemented")
 
-    def build_inference_graph(self, features):
-        raise NotImplementedError("Not implemented")
-
-    def build_incremental_decoder(self):
+    def get_inference_func(self):
         raise NotImplementedError("Not implemented")
 
     @staticmethod
-    def model_parameters():
+    def get_name():
+        raise NotImplementedError("Not implemented")
+
+    @staticmethod
+    def get_parameters():
         raise NotImplementedError("Not implemented")
 
     @property
     def parameters(self):
         return self._params
-
-
-class NMTIncrementalDecoder(object):
-    pass

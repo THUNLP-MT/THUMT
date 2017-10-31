@@ -124,7 +124,7 @@ def get_training_input(filenames, params):
 
         # Create iterator
         iterator = dataset.make_one_shot_iterator()
-        example = iterator.get_next()
+        features = iterator.get_next()
 
         # Create lookup table
         src_table = tf.contrib.lookup.index_table_from_tensor(
@@ -137,11 +137,11 @@ def get_training_input(filenames, params):
         )
 
         # String to index lookup
-        example["source"] = src_table.lookup(example["source"])
-        example["target"] = tgt_table.lookup(example["target"])
+        features["source"] = src_table.lookup(features["source"])
+        features["target"] = tgt_table.lookup(features["target"])
 
         # Batching
-        examples = batch_examples(example, params.batch_size,
+        features = batch_examples(features, params.batch_size,
                                   params.max_length, params.mantissa_bits,
                                   shard_multiplier=len(params.device_list),
                                   length_multiplier=params.length_multiplier,
@@ -149,14 +149,14 @@ def get_training_input(filenames, params):
                                   num_threads=params.num_threads)
 
         # Convert to int32
-        examples["source"] = tf.to_int32(examples["source"])
-        examples["target"] = tf.to_int32(examples["target"])
-        examples["source_length"] = tf.to_int32(examples["source_length"])
-        examples["target_length"] = tf.to_int32(examples["target_length"])
-        examples["source_length"] = tf.squeeze(examples["source_length"], 1)
-        examples["target_length"] = tf.squeeze(examples["target_length"], 1)
+        features["source"] = tf.to_int32(features["source"])
+        features["target"] = tf.to_int32(features["target"])
+        features["source_length"] = tf.to_int32(features["source_length"])
+        features["target_length"] = tf.to_int32(features["target_length"])
+        features["source_length"] = tf.squeeze(features["source_length"], 1)
+        features["target_length"] = tf.squeeze(features["target_length"], 1)
 
-        return examples
+        return features
 
 
 def sort_input_file(filename, reverse=True):
@@ -178,6 +178,95 @@ def sort_input_file(filename, reverse=True):
         sorted_keys[index] = i
 
     return sorted_keys, sorted_inputs
+
+
+def sort_and_zip_files(names):
+    inputs = []
+    input_lens = []
+    files = [tf.gfile.GFile(name) for name in names]
+
+    count = 0
+
+    for lines in zip(*files):
+        lines = [line.strip() for line in lines]
+        input_lens.append((count, len(lines[0].split())))
+        inputs.append(lines)
+        count += 1
+
+    # Close files
+    for fd in files:
+        fd.close()
+
+    sorted_input_lens = sorted(input_lens, key=operator.itemgetter(1),
+                               reverse=True)
+    sorted_inputs = []
+
+    for i, (index, _) in enumerate(sorted_input_lens):
+        sorted_inputs.append(inputs[index])
+
+    return [list(x) for x in zip(*sorted_inputs)]
+
+
+def get_evaluation_input(inputs, params):
+    with tf.device("/cpu:0"):
+        # Create datasets
+        datasets = []
+
+        for data in inputs:
+            dataset = tf.data.Dataset.from_tensor_slices(data)
+            # Split string
+            dataset = dataset.map(lambda x: tf.string_split([x]).values,
+                                  num_parallel_calls=params.num_threads)
+            # Append <eos>
+            dataset = dataset.map(
+                lambda x: tf.concat([x, [tf.constant(params.eos)]], axis=0),
+                num_parallel_calls=params.num_threads
+            )
+            datasets.append(dataset)
+
+        dataset = tf.data.Dataset.zip(tuple(datasets))
+
+        # Convert tuple to dictionary
+        dataset = dataset.map(
+            lambda *x: {
+                "source": x[0],
+                "source_length": tf.shape(x[0])[0],
+                "references": x[1:]
+            },
+            num_parallel_calls=params.num_threads
+        )
+
+        dataset = dataset.padded_batch(
+            params.eval_batch_size,
+            {
+                "source": [tf.Dimension(None)],
+                "source_length": [],
+                "references": (tf.Dimension(None),) * (len(inputs) - 1)
+            },
+            {
+                "source": params.pad,
+                "source_length": 0,
+                "references": (params.pad,) * (len(inputs) - 1)
+            }
+        )
+
+        iterator = dataset.make_one_shot_iterator()
+        features = iterator.get_next()
+
+        src_table = tf.contrib.lookup.index_table_from_tensor(
+            tf.constant(params.vocabulary["source"]),
+            default_value=params.mapping["source"][params.unk]
+        )
+        tgt_table = tf.contrib.lookup.index_table_from_tensor(
+            tf.constant(params.vocabulary["target"]),
+            default_value=params.mapping["target"][params.unk]
+        )
+        features["source"] = src_table.lookup(features["source"])
+        features["references"] = tuple(
+            tgt_table.lookup(item) for item in features["references"]
+        )
+
+    return features
 
 
 def get_inference_input(inputs, params):
@@ -208,12 +297,12 @@ def get_inference_input(inputs, params):
     )
 
     iterator = dataset.make_one_shot_iterator()
-    examples = iterator.get_next()
+    features = iterator.get_next()
 
     src_table = tf.contrib.lookup.index_table_from_tensor(
         tf.constant(params.vocabulary["source"]),
         default_value=params.mapping["source"][params.unk]
     )
-    examples["source"] = src_table.lookup(examples["source"])
+    features["source"] = src_table.lookup(features["source"])
 
-    return examples
+    return features

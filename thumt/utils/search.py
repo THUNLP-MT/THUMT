@@ -439,7 +439,7 @@ def create_inference_graph(model_fns, features, params):
         params_list = [params]
 
     if not isinstance(model_fns, (list, tuple)):
-        model_fns = [model_fn]
+        model_fns = [model_fns]
 
     decode_length = params.decode_length
     beam_size = params.beam_size

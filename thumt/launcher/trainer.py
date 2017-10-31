@@ -7,30 +7,47 @@ import argparse
 import numpy as np
 import tensorflow as tf
 
-import thumt.utils as utils
 import thumt.models as models
+import thumt.utils.search as search
 import thumt.data.dataset as dataset
 import thumt.data.vocab as vocabulary
 
+from thumt.utils.parallel import parallel_model
+from thumt.utils.hooks import BLEUHook, get_or_create_bleu_tensor
 
-flags = tf.flags
-FLAGS = flags.FLAGS
 
-flags.DEFINE_string("source", "", "Path to source corpus")
-flags.DEFINE_string("target", "", "Path to target corpus")
-flags.DEFINE_string("output", "thumt_train", "Path used to save checkpoints")
-flags.DEFINE_string("model", "rnnsearch", "Name of the model to train")
-flags.DEFINE_string("parameters", "", "Optional parameters")
+def parse_args(args=None):
+    parser = argparse.ArgumentParser(
+        description="Training neural machine translation models",
+        usage="trainer.py [<args>] [-h | --help]"
+    )
+
+    # input files
+    parser.add_argument("--input", type=str, nargs=2,
+                        help="Path of source and target corpus")
+    parser.add_argument("--output", type=str, help="Path to saved models")
+    parser.add_argument("--vocabulary", type=str, nargs=2,
+                        help="Path of source and target vocabulary")
+    parser.add_argument("--validation", type=str,
+                        help="Path of validation file")
+    parser.add_argument("--references", type=str, nargs="+",
+                        help="Path of reference files")
+
+    # model and configuration
+    parser.add_argument("--model", type=str, required=True,
+                        help="Name of the model")
+    parser.add_argument("--parameters", type=str, default="",
+                        help="Additional hyper parameters")
+
+    return parser.parse_args(args)
 
 
 def default_parameters():
     params = tf.contrib.training.HParams(
         input=None,
         output=None,
-        validation="",
-        references=[""],
         model=None,
-        # default training hyper parameters
+        # Default training hyper parameters
         num_threads=6,
         batch_size=128,
         max_length=256,
@@ -50,9 +67,32 @@ def default_parameters():
         clip_grad_norm=5.0,
         learning_rate_decay="noam",
         learning_rate_boundaries=[0],
-        learning_rate_values=[0.0]
-
+        learning_rate_values=[0.0],
+        keep_checkpoint_max=20,
+        # Validation
+        eval_steps=2000,
+        eval_batch_size=32,
+        alpha=0.6,
+        top_beams=1,
+        beam_size=4,
+        decode_length=50,
+        validation="",
+        references=[""],
     )
+
+    return params
+
+
+def import_params(model_dir, params):
+    p_name = os.path.join(model_dir, "/params.json")
+    m_name = os.path.join(model_dir, params.model + ".json")
+    with tf.gfile.Open(p_name) as fd:
+        json_str = fd.readline()
+        params.parse_json(json_str)
+
+    with tf.gfile.Open(m_name) as fd:
+        json_str = fd.readline()
+        params.parse_json(json_str)
 
     return params
 
@@ -94,14 +134,15 @@ def merge_parameters(params1, params2):
     return params
 
 
-def override_parameters(params):
-    params.input = [FLAGS.source, FLAGS.target]
-    params.output = FLAGS.output
-    params.parse(FLAGS.parameters)
+def override_parameters(params, args):
+    params.input = args.input
+    params.output = args.output
+    params.model = args.model
+    params.parse(args.parameters)
 
     params.vocabulary = {
-        "source": vocabulary.load_vocabulary(params.source_vocabulary),
-        "target": vocabulary.load_vocabulary(params.target_vocabulary)
+        "source": vocabulary.load_vocabulary(args.vocabulary[0]),
+        "target": vocabulary.load_vocabulary(args.vocabulary[1])
     }
     params.vocabulary["source"] = vocabulary.process_vocabulary(
         params.vocabulary["source"], params
@@ -119,6 +160,8 @@ def override_parameters(params):
             [params.pad, params.bos, params.eos, params.unk]
         )
     }
+    params.validation = args.validation
+    params.references = args.references
 
     return params
 
@@ -173,19 +216,42 @@ def session_config(params):
     return config
 
 
+def decode_target_ids(inputs, params):
+    decoded = []
+    vocab = params.vocabulary["target"]
+
+    for item in inputs:
+        syms = []
+        for idx in item:
+            sym = vocab[idx]
+
+            if sym == params.eos:
+                break
+
+            if sym == params.pad:
+                break
+
+            syms.append(sym)
+        decoded.append(syms)
+
+    return decoded
+
+
 def main(args):
     tf.logging.set_verbosity(tf.logging.INFO)
-    model_cls = models.get_model(FLAGS.model)
+    model_cls = models.get_model(args.model)
     params = default_parameters()
-    params = merge_parameters(params, model_cls.model_parameters())
-    params = override_parameters(params)
+    params = merge_parameters(params, model_cls.get_parameters())
+    params = override_parameters(params, args)
+
+    # Import parameters
 
     # Export all parameters and model specific parameters
     export_params(params.output, "params.json", params)
     export_params(
         params.output,
-        "%s.json" % FLAGS.model,
-        collect_params(params, model_cls.model_parameters())
+        "%s.json" % args.model,
+        collect_params(params, model_cls.get_parameters())
     )
 
     # Build Graph
@@ -198,8 +264,8 @@ def main(args):
         model = model_cls(params)
 
         # Multi-GPU setting
-        sharded_losses = utils.parallel.parallel_model(
-            lambda f: model.build_training_graph(f, initializer),
+        sharded_losses = parallel_model(
+            model.get_training_func(initializer),
             features,
             params.device_list
         )
@@ -218,7 +284,6 @@ def main(args):
                             str(v.shape).ljust(20))
             v_size = np.prod(np.array(v.shape.as_list())).tolist()
             total_size += v_size
-
         tf.logging.info("Total trainable variables size: %d", total_size)
 
         learning_rate = get_learning_rate_decay(params.learning_rate,
@@ -241,6 +306,19 @@ def main(args):
             colocate_gradients_with_ops=True
         )
 
+        # Validation
+        if params.validation and params.references[0]:
+            files = [params.validation] + list(params.references)
+            eval_inputs = dataset.sort_and_zip_files(files)
+            eval_input_fn = dataset.get_evaluation_input
+        else:
+            eval_input_fn = None
+
+        # Validation
+        eval_fn = lambda f: search.create_inference_graph(
+            model.get_evaluation_func(), f, params
+        )
+
         # Add hooks
         hooks = [
             tf.train.StopAtStepHook(last_step=params.train_steps),
@@ -256,14 +334,41 @@ def main(args):
             )
         ]
 
+        config = session_config(params)
+
+        if eval_input_fn is not None:
+            score_tensor = get_or_create_bleu_tensor()
+            hooks.append(
+                BLEUHook(
+                    score_tensor,
+                    eval_fn,
+                    lambda: eval_input_fn(eval_inputs, params),
+                    lambda x: decode_target_ids(x, params),
+                    params.output,
+                    config,
+                    os.path.join(params.output, "best"),
+                    eval_steps=params.eval_steps,
+                    saver=tf.train.Saver(
+                        save_relative_paths=True
+                    )
+                )
+            )
+
+        # scaffold -> MonitoredTrainingSession -> CheckpointSaverHook
+        scaffold = tf.train.Scaffold(
+            saver=tf.train.Saver(
+                max_to_keep=params.keep_checkpoint_max
+            )
+        )
+
         # Create session
         with tf.train.MonitoredTrainingSession(
-                checkpoint_dir=params.output,
-                hooks=hooks,
-                config=session_config(params)) as sess:
+                checkpoint_dir=params.output, hooks=hooks,
+                scaffold=scaffold, config=config) as sess:
             while not sess.should_stop():
                 sess.run(train_op)
 
 
 if __name__ == "__main__":
-    tf.app.run()
+    parsed_args = parse_args()
+    main(parse_args())

@@ -151,7 +151,7 @@ def main(args):
     model_cls_list = [models.get_model(model) for model in args.models]
     params_list = [default_parameters() for _ in range(len(model_cls_list))]
     params_list = [
-        merge_parameters(params, model_cls.model_parameters())
+        merge_parameters(params, model_cls.get_parameters())
         for params, model_cls in zip(params_list, model_cls_list)
     ]
     params_list = [
@@ -164,15 +164,14 @@ def main(args):
         model_var_lists = []
 
         # Load checkpoints
-        for checkpoint in args.checkpoints:
+        for i, checkpoint in enumerate(args.checkpoints):
             print("Loading %s" % checkpoint)
             var_list = tf.train.list_variables(checkpoint)
             values = {}
             reader = tf.train.load_checkpoint(checkpoint)
 
             for (name, shape) in var_list:
-                # TODO: more general cases
-                if not name.startswith("rnnsearch"):
+                if not name.startswith(model_cls_list[i].get_name()):
                     continue
 
                 if name.find("losses_avg") >= 0:
@@ -187,9 +186,9 @@ def main(args):
         model_fns = []
 
         for i in range(len(args.checkpoints)):
-            # TODO: replace rnnsearch with model_cls.name
-            model = model_cls_list[i](params_list[i], "rnnsearch_%d" % i)
-            model_fn = model.get_inference_fn()
+            name = model_cls_list[i].get_name()
+            model = model_cls_list[i](params_list[i], name + "_%d" % i)
+            model_fn = model.get_inference_func()
             model_fns.append(model_fn)
 
         # Read input file
@@ -205,30 +204,33 @@ def main(args):
 
         for i in range(len(args.checkpoints)):
             un_init_var_list = []
+            name = model_cls_list[i].get_name()
 
             for v in all_var_list:
-                if v.name.startswith("rnnsearch_%d" % i):
+                if v.name.startswith(name + "_%d" % i):
                     un_init_var_list.append(v)
 
             ops = set_variables(un_init_var_list, model_var_lists[i],
-                               "rnnsearch_%d" % i)
+                                name + "_%d" % i)
             assign_ops.extend(ops)
 
         assign_op = tf.group(*assign_ops)
 
-        session_creator = tf.train.ChiefSessionCreator(
+        sess_creator = tf.train.ChiefSessionCreator(
             config=session_config(params_list[0])
         )
 
         results = []
 
         # Create session
-        with tf.train.MonitoredSession(session_creator=session_creator) as sess:
+        with tf.train.MonitoredSession(session_creator=sess_creator) as sess:
+            # Restore variables
             sess.run(assign_op)
 
             while not sess.should_stop():
                 results.append(sess.run(predictions))
-                tf.logging.log(tf.logging.INFO, "Finished batch %d" % len(results))
+                message = "Finished batch %d" % len(results)
+                tf.logging.log(tf.logging.INFO, message)
 
     # Convert to plain text
     vocab = params_list[0].vocabulary["target"]

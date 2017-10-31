@@ -9,17 +9,33 @@ import tensorflow as tf
 
 import thumt.models as models
 import thumt.data.dataset as dataset
+import thumt.utils.search as search
 import thumt.data.vocab as vocabulary
 
 
-flags = tf.flags
-FLAGS = flags.FLAGS
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Translate using neural machine translation models",
+        usage="translator.py [<args>] [-h | --help]"
+    )
 
-flags.DEFINE_string("input", "", "Path to input file")
-flags.DEFINE_string("output", "", "Path to output file")
-flags.DEFINE_string("path", "thumt_train", "Path to checkpoints")
-flags.DEFINE_string("model", "rnnsearch", "Name of the model to train")
-flags.DEFINE_string("parameters", "", "Optional parameters")
+    # input files
+    parser.add_argument("--input", type=str, required=True,
+                        help="Path of input file")
+    parser.add_argument("--output", type=str, required=True,
+                        help="Path of output file")
+    parser.add_argument("--path", type=str, required=True,
+                        help="Path of trained models")
+    parser.add_argument("--vocabulary", type=str, nargs=2,
+                        help="Path of source and target vocabulary")
+
+    # model and configuration
+    parser.add_argument("--model", type=str, required=True,
+                        help="Name of the model")
+    parser.add_argument("--parameters", type=str, default="",
+                        help="Additional hyper parameters")
+
+    return parser.parse_args()
 
 
 def default_parameters():
@@ -76,15 +92,14 @@ def import_params(output_dir, name, params):
         fd.write(params.to_json())
 
 
-def override_parameters(params):
-    params.input = FLAGS.input
-    params.output = FLAGS.output
-    params.path = FLAGS.path
-    params.parse(FLAGS.parameters)
-
+def override_parameters(params, args):
+    params.input = args.input
+    params.output = args.output
+    params.path = args.path
+    params.parse(args.parameters)
     params.vocabulary = {
-        "source": vocabulary.load_vocabulary(params.vocabulary[0]),
-        "target": vocabulary.load_vocabulary(params.vocabulary[1])
+        "source": vocabulary.load_vocabulary(args.vocabulary[0]),
+        "target": vocabulary.load_vocabulary(args.vocabulary[1])
     }
     params.vocabulary["source"] = vocabulary.process_vocabulary(
         params.vocabulary["source"], params
@@ -123,9 +138,8 @@ def main(args):
     tf.logging.set_verbosity(tf.logging.INFO)
     model_cls = models.get_model(args.model)
     params = default_parameters()
-    params = merge_parameters(params, model_cls.model_parameters())
-
-    params = override_parameters(params)
+    params = merge_parameters(params, model_cls.get_parameters())
+    params = override_parameters(params, args)
 
     # Build Graph
     with tf.Graph().as_default():
@@ -136,50 +150,55 @@ def main(args):
 
         # Build model
         model = model_cls(params)
-        predictions = model.build_inference_graph(features)
+        inference_fn = model.get_inference_func()
+        predictions = search.create_inference_graph(inference_fn, features,
+                                                    params)
 
-        session_creator = tf.train.ChiefSessionCreator(
+        if not tf.gfile.Exists(params.path):
+            raise ValueError("Path %s not found" % params.path)
+
+        sess_creator = tf.train.ChiefSessionCreator(
             checkpoint_dir=params.path,
             config=session_config(params)
         )
 
         results = []
 
-        with tf.train.MonitoredSession(
-                session_creator=session_creator) as sess:
+        with tf.train.MonitoredSession(session_creator=sess_creator) as sess:
             while not sess.should_stop():
                 results.append(sess.run(predictions))
-                tf.logging.log(tf.logging.INFO,
-                               "Finished batch %d" % len(results))
+                message = "Finished batch %d" % len(results)
+                tf.logging.log(tf.logging.INFO, message)
 
-    # Convert to plain text
-    vocab = params.vocabulary["target"]
-    outputs = []
+        # Convert to plain text
+        vocab = params.vocabulary["target"]
+        outputs = []
 
-    for result in results:
-        outputs.append(result.tolist())
+        for result in results:
+            outputs.append(result.tolist())
 
-    outputs = list(itertools.chain(*outputs))
+        outputs = list(itertools.chain(*outputs))
 
-    restored_outputs = []
+        restored_outputs = []
 
-    for index in range(len(sorted_inputs)):
-        restored_outputs.append(outputs[sorted_keys[index]])
+        for index in range(len(sorted_inputs)):
+            restored_outputs.append(outputs[sorted_keys[index]])
 
-    # Write to file
-    with open(params.output, "w") as outfile:
-        for output in restored_outputs:
-            decoded = [vocab[idx] for idx in output]
-            decoded = " ".join(decoded)
-            idx = decoded.find(params.eos)
+        # Write to file
+        with open(params.output, "w") as outfile:
+            for output in restored_outputs:
+                decoded = [vocab[idx] for idx in output]
+                decoded = " ".join(decoded)
+                idx = decoded.find(params.eos)
 
-            if idx >= 0:
-                output = decoded[:idx].strip()
-            else:
-                output = decoded.strip()
+                if idx >= 0:
+                    output = decoded[:idx].strip()
+                else:
+                    output = decoded.strip()
 
-            outfile.write("%s\n" % output)
+                outfile.write("%s\n" % output)
 
 
 if __name__ == "__main__":
-    tf.app.run()
+    parsed_args = parse_args()
+    main(parsed_args)

@@ -13,9 +13,9 @@ def _maybe_repeat(x, n):
         return [x] * n
 
 
-def getter_fn(cache):
+def getter_fn(device, cache):
     def daisy_chain_getter(getter, name, *args, **kwargs):
-        device_var_key = (devices[i], name)
+        device_var_key = (device, name)
         if device_var_key in cache:
             # If we have the variable on the correct device, return it.
             return cache[device_var_key]
@@ -58,13 +58,12 @@ def data_parallelism(devices, fn, *args, **kwargs):
 
     # Now make the parallel call.
     outputs = []
-    cache = {}
 
     for i in xrange(num_worker):
         with tf.name_scope('parallel_%d' % i):
             with tf.variable_scope(tf.get_variable_scope(),
                                    reuse=True if i > 0 else None,
-                                   custom_getter=getter_fn(cache)):
+                                   caching_device="/cpu:0"):
                 with tf.device(devices[i]):
                     outputs.append(fns[i](*new_args[i], **new_kwargs[i]))
 

@@ -109,8 +109,9 @@ def _decoder(cell, inputs, memory, sequence_length, initial_state, dtype=None,
         mem_mask = tf.sequence_mask(sequence_length["source"],
                                     maxlen=tf.shape(memory)[1],
                                     dtype=tf.float32)
-        bias = layers.nn.attention_bias(mem_mask)
-        #cache = layers.nn.attention(None, memory, None, output_size)
+        bias = layers.attention.attention_bias(mem_mask, "masking")
+        bias = tf.squeeze(bias, axis=[1, 2])
+        # cache = layers.nn.attention(None, memory, None, output_size)
 
         input_ta = tf.TensorArray(tf.float32, time_steps,
                                   tensor_array_name="input_array")
@@ -127,8 +128,8 @@ def _decoder(cell, inputs, memory, sequence_length, initial_state, dtype=None,
 
         def loop_func(t, out_ta, att_ta, val_ta, state):
             inp_t = input_ta.read(t)
-            results = layers.nn.attention(state, memory, bias, output_size,
-                                          cache=None)
+            results = layers.attention.attention(state, memory, bias,
+                                                 output_size, cache=None)
             alpha = results["weight"]
             context = results["value"]
             cell_input = [inp_t, context]
@@ -173,173 +174,6 @@ def _decoder(cell, inputs, memory, sequence_length, initial_state, dtype=None,
     return result
 
 
-def _encoding_graph(features, params):
-    # Encoding and pre-computation
-    src_vocab_size = len(params.vocabulary["source"])
-
-    with tf.device("/cpu:0"):
-        with tf.variable_scope("source_embedding"):
-            src_emb = tf.get_variable("embedding",
-                                      [src_vocab_size,
-                                       params.embedding_size])
-            src_bias = tf.get_variable("bias", [params.embedding_size])
-            src_inputs = tf.nn.embedding_lookup(src_emb,
-                                                features["source"])
-            src_inputs = tf.nn.bias_add(src_inputs, src_bias)
-
-    cell_fw = layers.rnn_cell.LegacyGRUCell(params.hidden_size)
-    cell_bw = layers.rnn_cell.LegacyGRUCell(params.hidden_size)
-
-    encoder_output = _encoder(cell_fw, cell_bw, src_inputs,
-                              features["source_length"])
-    annotation = encoder_output["annotation"]
-    initial_state = encoder_output["final_states"]["backward"]
-
-    with tf.variable_scope("decoder"):
-        mem_mask = tf.sequence_mask(sequence_length["source"],
-                                    maxlen=tf.shape(annotation)[1],
-                                    dtype=tf.float32)
-        bias = layers.nn.attention_bias(mem_mask)
-        cache = layers.nn.attention(None, memory, None, output_size)
-        initial_state = layers.nn.linear(initial_state, output_size, True,
-                                         scope="s_transform")
-        initial_state = tf.tanh(initial_state)
-
-    # All features used in decoding must listed here
-    # The first dimension of each tensor must be BATCH_DIM
-    decoding_features = {
-        "annotation": annotation,
-        "state": initial_state,
-        "weight": tf.zeros_like(annotation[:, :, 0]),
-        "attention_bias": bias,
-        "attention_cache": cache,
-        "attention_vector": tf.zeros_like(annotation[:, 0, :])
-    }
-
-    return decoding_features
-
-
-def _decoding_graph(features, params):
-    # Decoding
-    # The computation of original RNNsearch's decoding step is confusing
-    # * At the initial step, the implementation uses initial state computed
-    #   using encoder final state to obtain attention context. Then
-    #   combined with initial state and zero embedding to predict next
-    #   words
-    # * For other steps. The new state is computed by feeding previous
-    #   state, current word input and previous context vector. The new
-    #   context vector is computed using new state. The probability
-    #   distribution is computed using input word embedding, new context
-    #   and new state
-
-    tgt_vocab_size = len(params.vocabulary["target"])
-
-    # Special case for initial step
-    def initial_step_fn():
-        cache = {"key": features["attention_cache"]}
-
-        with tf.variable_scope("decoder"):
-            results = layers.nn.attention(features["state"],
-                                          features["annotation"],
-                                          features["attention_bias"],
-                                          params.hidden_size,
-                                          cache=cache)
-        alpha = results["weight"]
-        context = results["value"]
-        batch_size = tf.shape(context)[0]
-        zero_embedding = tf.zeros([batch_size, params.embedding_size])
-        maxout_features = [
-            zero_embedding,
-            features["state"],
-            context
-        ]
-
-        readout = layers.nn.maxout(tf.concat(maxout_features, axis=-1),
-                                   params.embedding_size)
-
-        # Prediction
-        logits = layers.nn.linear(readout, tgt_vocab_size, True,
-                                  scope="softmax")
-        prob_dist = tf.nn.softmax(logits)
-
-        # The features must exactly the same with what encoding returned
-        decoding_features = {
-            "annotation": features["annotation"],
-            "state": features["state"],
-            "weight": alpha,
-            "attention_bias": features["attention_bias"],
-            "attention_cache": features["attention_cache"],
-            "attention_vector": context
-        }
-
-        return prob_dist, decoding_features
-
-    def step_fn():
-        with tf.device("/cpu:0"):
-            with tf.variable_scope("source_embedding"):
-                tgt_emb = tf.get_variable("embedding",
-                                          [tgt_vocab_size,
-                                           params.embedding_size])
-                tgt_bias = tf.get_variable("bias", [params.embedding_size])
-
-                # Take last word
-                tgt_inputs = tf.nn.embedding_lookup(
-                    tgt_emb,
-                    features["target"][:, -1]
-                )
-                tgt_inputs = tf.nn.bias_add(tgt_inputs, tgt_bias)
-
-        # RNN step
-        with tf.variable_scope("decoder"):
-            cache = {"key": features["attention_cache"]}
-            cell = layers.rnn_cell.LegacyGRUCell(params.hidden_size)
-            # 1. Compute new state
-            context = features["attention_vector"]
-            output, new_state = cell([tgt_inputs, context], features["state"])
-            # 2. Compute new context
-            results = layers.nn.attention(new_state,
-                                          features["annotation"],
-                                          features["attention_bias"],
-                                          params.hidden_size,
-                                          cache=cache)
-            alpha = results["weight"]
-            context = results["value"]
-            # 3. Prediction
-            maxout_features = [
-                tgt_inputs,
-                new_state,
-                context
-            ]
-
-            maxout_size = params.hidden_size / params.maxnum
-            maxhid = layers.nn.maxout(maxout_features, maxout_size,
-                                      params.maxnum, concat=False)
-            readout = layers.nn.linear(maxhid, params.embedding_size, False,
-                                       scope="deepout")
-
-            # Prediction
-            logits = layers.nn.linear(readout, tgt_vocab_size, True,
-                                      scope="softmax")
-            prob_dist = tf.nn.softmax(logits)
-
-            # The features must exactly the same with what encoding returned
-            decoding_features = {
-                "annotation": features["annotation"],
-                "state": new_state,
-                "weight": alpha,
-                "attention_bias": features["attention_bias"],
-                "attention_cache": features["attention_cache"],
-                "attention_vector": context,
-            }
-
-        return prob_dist, decoding_features
-
-    dist, new_features = tf.cond(tf.equal(tf.shape(features["target"])[1], 1),
-                                 initial_step_fn, step_fn)
-
-    return dist, new_features
-
-
 def model_parameters():
     params = tf.contrib.training.HParams(
         # vocabulary
@@ -362,7 +196,7 @@ def model_parameters():
     return params
 
 
-def training_graph(features, labels, params):
+def model_graph(features, labels, params):
     src_vocab_size = len(params.vocabulary["source"])
     tgt_vocab_size = len(params.vocabulary["target"])
 
@@ -372,14 +206,15 @@ def training_graph(features, labels, params):
                                       [src_vocab_size, params.embedding_size])
             src_bias = tf.get_variable("bias", [params.embedding_size])
             src_inputs = tf.nn.embedding_lookup(src_emb, features["source"])
-            src_inputs = tf.nn.bias_add(src_inputs, src_bias)
 
         with tf.variable_scope("target_embedding"):
             tgt_emb = tf.get_variable("embedding",
                                       [tgt_vocab_size, params.embedding_size])
             tgt_bias = tf.get_variable("bias", [params.embedding_size])
             tgt_inputs = tf.nn.embedding_lookup(tgt_emb, features["target"])
-            tgt_inputs = tf.nn.bias_add(tgt_inputs, tgt_bias)
+
+    src_inputs = tf.nn.bias_add(src_inputs, src_bias)
+    tgt_inputs = tf.nn.bias_add(tgt_inputs, tgt_bias)
 
     if params.dropout and not params.use_variational_dropout:
         src_inputs = tf.nn.dropout(src_inputs, 1.0 - params.dropout)
@@ -493,7 +328,12 @@ def training_graph(features, labels, params):
     )
 
     ce = tf.reshape(ce, tf.shape(labels))
-    tgt_mask = tf.to_float(tf.sequence_mask(features["target_length"]))
+    tgt_mask = tf.to_float(
+        tf.sequence_mask(
+            features["target_length"],
+            maxlen=tf.shape(features["target"])[1]
+        )
+    )
     loss = tf.reduce_sum(ce * tgt_mask) / tf.reduce_sum(tgt_mask)
 
     results = {
@@ -504,60 +344,59 @@ def training_graph(features, labels, params):
     return results
 
 
-def incremental_inference_graph(features, params):
-    if "target" not in features:
-        return _encoding_graph(features, params)
-    else:
-        return _decoding_graph(features, params)
-
-
 class RNNsearch(NMTModel):
 
     def __init__(self, params, scope="rnnsearch"):
         super(RNNsearch, self).__init__(params=params, scope=scope)
 
-    def build_training_graph(self, features, initializer):
-        with tf.variable_scope(self._scope, initializer=initializer):
-            results = training_graph(features, features["target"],
-                                     self.parameters)
-            return results["loss"]
+    def get_training_func(self, initializer):
+        def training_fn(features, params=None):
+            if params is None:
+                params = self.parameters
+            with tf.variable_scope(self._scope, initializer=initializer):
+                results = model_graph(features, features["target"], params)
+                return results["loss"]
 
-    def build_evaluation_graph(self, features):
-        raise NotImplementedError("Not implemented")
+        return training_fn
 
-    def build_inference_graph(self, features):
-        # This function is costly.
-        params = copy.copy(self.parameters)
-        params.dropout = 0.0
-        params.use_variational_dropout = False,
-        params.label_smoothing = 0.0
-
-        with tf.variable_scope(self._scope):
-            results = search.create_inference_graph(
-                lambda f, p: training_graph(f, None, p), features, params
-            )
-
-        return results
-
-    def build_incremental_decoder(self):
-        # This is the preferred method to be called during inference stage
-        raise NotImplementedError("Not implemented")
-
-    def get_inference_fn(self):
-        # This function is costly.
-        def fn(features, _):
-            params = copy.copy(self.parameters)
+    def get_evaluation_func(self):
+        def evaluation_fn(features, params=None):
+            if params is None:
+                params = copy.copy(self.parameters)
+            else:
+                params = copy.copy(params)
             params.dropout = 0.0
             params.use_variational_dropout = False
             params.label_smoothing = 0.0
 
             with tf.variable_scope(self._scope):
-                logits = training_graph(features, None, params)
+                logits = model_graph(features, None, params)
 
             return logits
 
-        return fn
+        return evaluation_fn
+
+    def get_inference_func(self):
+        def inference_fn(features, params=None):
+            if params is None:
+                params = copy.copy(self.parameters)
+            else:
+                params= copy.copy(params)
+            params.dropout = 0.0
+            params.use_variational_dropout = False
+            params.label_smoothing = 0.0
+
+            with tf.variable_scope(self._scope):
+                logits = model_graph(features, None, params)
+
+            return logits
+
+        return inference_fn
 
     @staticmethod
-    def model_parameters():
+    def get_name():
+        return "rnnsearch"
+
+    @staticmethod
+    def get_parameters():
         return model_parameters()
