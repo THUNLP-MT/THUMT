@@ -78,6 +78,7 @@ def default_parameters():
         decode_length=50,
         validation="",
         references=[""],
+        save_checkpoint_secs=600
     )
 
     return params
@@ -364,6 +365,7 @@ def main(args):
         # Create session
         with tf.train.MonitoredTrainingSession(
                 checkpoint_dir=params.output, hooks=hooks,
+                save_checkpoint_secs=params.save_checkpoint_secs,
                 scaffold=scaffold, config=config) as sess:
             while not sess.should_stop():
                 sess.run(train_op)

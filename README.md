@@ -13,20 +13,20 @@ export PYTHONPATH="$PYTHONPATH:PATH/TO/THUMT"
 ## Basic Usage
 ### Training
 ```
-python THUMT/thumt/launcher/trainer.py --input source.txt target.txt          \
-                                       --output train                         \
-                                       --vocabulary vocab.src vocab.tgt       \
-                                       --model rnnsearch                      \
+python THUMT/thumt/launcher/trainer.py --input source.txt target.txt          
+                                       --output train                         
+                                       --vocabulary vocab.src vocab.tgt       
+                                       --model rnnsearch                      
                                        --paramters=ADDITIONAL_PARAMTERS
 ```
 There are several additional parameters that you can specify. 
 
 ### Decoding
 ```
-python THUMT/thumt/launcher/translator.py --model rnnsearch                   \
-                                          --input input.txt                   \
-                                          --output output.txt                 \
-                                          --vocabulary vocab.src vocab.tgt    \
-                                          --path train/                       \
+python THUMT/thumt/launcher/translator.py --model rnnsearch                   
+                                          --input input.txt                   
+                                          --output output.txt                 
+                                          --vocabulary vocab.src vocab.tgt    
+                                          --path train/                       
                                           --parameters=ADDITIONAL_PARAMTERS
 ```

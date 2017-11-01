@@ -30,9 +30,12 @@ def model_parameters():
         shared_embedding_and_softmax_weights=False,
         shared_source_target_embedding=False,
         # Override default parameters
+        learning_rate_decay="noam",
         initializer="uniform_unit_scaling",
         initializer_gain=1.0,
-        learning_rate=2.0
+        learning_rate=2.0,
+        layer_preprocess="layer_norm",
+        layer_postprocess="none"
     )
 
     return params
@@ -72,6 +75,15 @@ def get_weights(params):
     return semb, temb, softmax_weights
 
 
+def layer_process(x, mode):
+    if not mode or mode == "none":
+        return x
+    elif mode == "layer_norm":
+        return layers.nn.layer_norm(x)
+    else:
+        raise ValueError("Unknown mode %s" % mode)
+
+
 def residual_fn(x, y, keep_prob=None):
     if keep_prob and keep_prob < 1.0:
         y = tf.nn.dropout(y, keep_prob)
@@ -103,7 +115,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
             with tf.variable_scope("layer_%d" % layer):
                 with tf.variable_scope("self_attention"):
                     y = layers.attention.multihead_attention(
-                        layers.nn.layer_norm(x),
+                        layer_process(x, params.layer_preprocess),
                         None,
                         bias,
                         params.num_heads,
@@ -114,17 +126,19 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                     )
                     y = y["outputs"]
                     x = residual_fn(x, y, 1.0 - params.residual_dropout)
+                    x = layer_process(x, params.layer_postprocess)
 
                 with tf.variable_scope("feed_forward"):
                     y = ffn_layer(
-                        layers.nn.layer_norm(x),
+                        layer_process(x, params.layer_preprocess),
                         params.filter_size,
                         params.hidden_size,
                         1.0 - params.relu_dropout,
                     )
                     x = residual_fn(x, y, 1.0 - params.residual_dropout)
+                    x = layer_process(x, params.layer_postprocess)
 
-        outputs = layers.nn.layer_norm(x)
+        outputs = layer_process(x, params.layer_preprocess)
 
         return outputs
 
@@ -138,7 +152,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, dtype=None,
             with tf.variable_scope("layer_%d" % layer):
                 with tf.variable_scope("self_attention"):
                     y = layers.attention.multihead_attention(
-                        layers.nn.layer_norm(x),
+                        layer_process(x, params.layer_preprocess),
                         None,
                         bias,
                         params.num_heads,
@@ -149,10 +163,11 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, dtype=None,
                     )
                     y = y["outputs"]
                     x = residual_fn(x, y, 1.0 - params.residual_dropout)
+                    x = layer_process(x, params.layer_postprocess)
 
                 with tf.variable_scope("encdec_attention"):
                     y = layers.attention.multihead_attention(
-                        layers.nn.layer_norm(x),
+                        layer_process(x, params.layer_preprocess),
                         memory,
                         mem_bias,
                         params.num_heads,
@@ -163,17 +178,19 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, dtype=None,
                     )
                     y = y["outputs"]
                     x = residual_fn(x, y, 1.0 - params.residual_dropout)
+                    x = layer_process(x, params.layer_postprocess)
 
                 with tf.variable_scope("feed_forward"):
                     y = ffn_layer(
-                        layers.nn.layer_norm(x),
+                        layer_process(x, params.layer_preprocess),
                         params.filter_size,
                         params.hidden_size,
                         1.0 - params.relu_dropout,
                     )
                     x = residual_fn(x, y, 1.0 - params.residual_dropout)
+                    x = layer_process(x, params.layer_postprocess)
 
-        outputs = layers.nn.layer_norm(x)
+        outputs = layer_process(x, params.layer_preprocess)
 
         return outputs
 
@@ -183,8 +200,12 @@ def model_graph(features, labels, mode, params):
 
     src_seq = features["source"]
     tgt_seq = features["target"]
-    src_mask = tf.sequence_mask(features["source_length"], dtype=tf.float32)
-    tgt_mask = tf.sequence_mask(features["target_length"], dtype=tf.float32)
+    src_mask = tf.sequence_mask(features["source_length"],
+                                maxlen=tf.shape(features["source"])[1],
+                                dtype=tf.float32)
+    tgt_mask = tf.sequence_mask(features["target_length"],
+                                maxlen=tf.shape(features["target"])[1],
+                                dtype=tf.float32)
 
     src_embedding, tgt_embedding, weights = get_weights(params)
     bias = tf.get_variable("bias", [hidden_size])

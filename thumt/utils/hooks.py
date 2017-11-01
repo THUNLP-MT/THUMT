@@ -183,7 +183,7 @@ class BLEUHook(tf.train.SessionRunHook):
         stale_global_step, current_score = run_values.results
         if self._timer.should_trigger_for_step(stale_global_step + 1):
             global_step = run_context.session.run(self._global_step_tensor)
-            # get the real value after train op.
+            # Get the real value after train op.
             if self._timer.should_trigger_for_step(global_step):
                 self._timer.update_last_triggered_step(global_step)
                 # Do the validation here

@@ -65,6 +65,9 @@ def brevity_penalty(trans, refs, mode="closest"):
         else:
             bp_r += closest_length(candidate, references)
 
+    # Prevent zero divide
+    bp_c = bp_c or 1.0
+
     return math.exp(min(0, 1.0 - bp_r / bp_c))
 
 
