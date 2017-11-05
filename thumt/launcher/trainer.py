@@ -206,7 +206,7 @@ def get_learning_rate_decay(learning_rate, global_step, params):
 
 def session_config(params):
     optimizer_options = tf.OptimizerOptions(opt_level=tf.OptimizerOptions.L1,
-                                            do_function_inlining=False)
+                                            do_function_inlining=True)
     graph_options = tf.GraphOptions(optimizer_options=optimizer_options)
     config = tf.ConfigProto(allow_soft_placement=True,
                             graph_options=graph_options)

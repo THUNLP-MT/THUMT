@@ -2,6 +2,7 @@
 # Copyright 2017 The THUMT Authors
 
 import six
+import operator
 import tensorflow as tf
 
 
@@ -13,25 +14,38 @@ def _maybe_repeat(x, n):
         return [x] * n
 
 
-def getter_fn(device, cache):
-    def daisy_chain_getter(getter, name, *args, **kwargs):
-        device_var_key = (device, name)
-        if device_var_key in cache:
-            # If we have the variable on the correct device, return it.
-            return cache[device_var_key]
-        if name in cache:
-            # If we have it on a different device, copy it from the last
-            # device
-            v = tf.identity(cache[name])
-        else:
-            var = getter(name, *args, **kwargs)
-            v = tf.identity(var._ref())
-        # Update the cache
-        cache[name] = v
-        cache[device_var_key] = v
-        return v
+class GPUParamServerDeviceSetter(object):
 
-    return daisy_chain_getter
+    def __init__(self, worker_device, ps_devices):
+        self.ps_devices = ps_devices
+        self.worker_device = worker_device
+        self.ps_sizes = [0] * len(self.ps_devices)
+
+    def __call__(self, op):
+        if op.device:
+            return op.device
+        if op.type not in ['Variable', 'VariableV2', 'VarHandleOp']:
+            return self.worker_device
+
+        # Gets the least loaded ps_device
+        device_index, _ = min(enumerate(self.ps_sizes),
+                              key=operator.itemgetter(1))
+        device_name = self.ps_devices[device_index]
+        var_size = op.outputs[0].get_shape().num_elements()
+        self.ps_sizes[device_index] += var_size
+
+        return device_name
+
+
+def _create_device_setter(is_cpu_ps, worker, num_gpus):
+    if is_cpu_ps:
+        # tf.train.replica_device_setter supports placing variables on the CPU,
+        # all on one GPU, or on ps_servers defined in a cluster_spec.
+        return tf.train.replica_device_setter(
+            worker_device=worker, ps_device="/cpu:0", ps_tasks=1)
+    else:
+        gpus = ['/gpu:%d' % i for i in range(num_gpus)]
+        return GPUParamServerDeviceSetter(worker, gpus)
 
 
 # Data-level parallelism
@@ -60,11 +74,11 @@ def data_parallelism(devices, fn, *args, **kwargs):
     outputs = []
 
     for i in xrange(num_worker):
-        with tf.name_scope('parallel_%d' % i):
-            with tf.variable_scope(tf.get_variable_scope(),
-                                   reuse=True if i > 0 else None,
-                                   caching_device="/cpu:0"):
-                with tf.device(devices[i]):
+        worker = "/gpu:%d" % i
+        device_setter = _create_device_setter(False, worker, len(devices))
+        with tf.variable_scope(tf.get_variable_scope(), reuse=(i != 0)):
+            with tf.name_scope("parallel_%d" % i):
+                with tf.device(device_setter):
                     outputs.append(fns[i](*new_args[i], **new_kwargs[i]))
 
     if isinstance(outputs[0], tuple):

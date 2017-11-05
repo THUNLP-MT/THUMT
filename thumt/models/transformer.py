@@ -35,7 +35,12 @@ def model_parameters():
         initializer_gain=1.0,
         learning_rate=2.0,
         layer_preprocess="layer_norm",
-        layer_postprocess="none"
+        layer_postprocess="none",
+        batch_size=4096,
+        constant_batch_size=False,
+        adam_beta1=0.9,
+        adam_beta2=0.98,
+        adam_epsilon=1e-9
     )
 
     return params

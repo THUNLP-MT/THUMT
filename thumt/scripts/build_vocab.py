@@ -24,7 +24,7 @@ def control_symbols(string):
     if not string:
         return []
     else:
-        return string.strip().split(":")
+        return string.strip().split(",")
 
 
 def save_vocab(name, vocab):
@@ -48,7 +48,7 @@ def parse_args():
     parser.add_argument("--limit", default=0, type=int, help="Vocabulary size")
     parser.add_argument("--control", type=str,
                         help="Add control symbols to vocabulary. "
-                             "Control symbols are separated by colon.")
+                             "Control symbols are separated by comma.")
 
     return parser.parse_args()
 

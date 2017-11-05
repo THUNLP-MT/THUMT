@@ -111,7 +111,7 @@ def _decoder(cell, inputs, memory, sequence_length, initial_state, dtype=None,
                                     dtype=tf.float32)
         bias = layers.attention.attention_bias(mem_mask, "masking")
         bias = tf.squeeze(bias, axis=[1, 2])
-        # cache = layers.nn.attention(None, memory, None, output_size)
+        cache = layers.attention.attention(None, memory, None, output_size)
 
         input_ta = tf.TensorArray(tf.float32, time_steps,
                                   tensor_array_name="input_array")
@@ -126,10 +126,11 @@ def _decoder(cell, inputs, memory, sequence_length, initial_state, dtype=None,
                                          scope="s_transform")
         initial_state = tf.tanh(initial_state)
 
-        def loop_func(t, out_ta, att_ta, val_ta, state):
+        def loop_func(t, out_ta, att_ta, val_ta, state, cache_key):
             inp_t = input_ta.read(t)
             results = layers.attention.attention(state, memory, bias,
-                                                 output_size, cache=None)
+                                                 output_size,
+                                                 cache={"key": cache_key})
             alpha = results["weight"]
             context = results["value"]
             cell_input = [inp_t, context]
@@ -144,10 +145,12 @@ def _decoder(cell, inputs, memory, sequence_length, initial_state, dtype=None,
             out_ta = out_ta.write(t, cell_output)
             att_ta = att_ta.write(t, alpha)
             val_ta = val_ta.write(t, new_value)
-            return t + 1, out_ta, att_ta, val_ta, new_state
+            cache_key = tf.identity(cache_key)
+            return t + 1, out_ta, att_ta, val_ta, new_state, cache_key
 
         time = tf.constant(0, dtype=tf.int32, name="time")
-        loop_vars = (time, output_ta, alpha_ta, value_ta, initial_state)
+        loop_vars = (time, output_ta, alpha_ta, value_ta, initial_state,
+                     cache["key"])
 
         outputs = tf.while_loop(lambda t, *_: t < time_steps,
                                 loop_func, loop_vars,
@@ -191,6 +194,9 @@ def model_parameters():
         dropout=0.2,
         use_variational_dropout=False,
         label_smoothing=0.1,
+        constant_batch_size=True,
+        batch_size=128,
+        max_length=80
     )
 
     return params
@@ -200,18 +206,17 @@ def model_graph(features, labels, params):
     src_vocab_size = len(params.vocabulary["source"])
     tgt_vocab_size = len(params.vocabulary["target"])
 
-    with tf.device("/cpu:0"):
-        with tf.variable_scope("source_embedding"):
-            src_emb = tf.get_variable("embedding",
-                                      [src_vocab_size, params.embedding_size])
-            src_bias = tf.get_variable("bias", [params.embedding_size])
-            src_inputs = tf.nn.embedding_lookup(src_emb, features["source"])
+    with tf.variable_scope("source_embedding"):
+        src_emb = tf.get_variable("embedding",
+                                  [src_vocab_size, params.embedding_size])
+        src_bias = tf.get_variable("bias", [params.embedding_size])
+        src_inputs = tf.nn.embedding_lookup(src_emb, features["source"])
 
-        with tf.variable_scope("target_embedding"):
-            tgt_emb = tf.get_variable("embedding",
-                                      [tgt_vocab_size, params.embedding_size])
-            tgt_bias = tf.get_variable("bias", [params.embedding_size])
-            tgt_inputs = tf.nn.embedding_lookup(tgt_emb, features["target"])
+    with tf.variable_scope("target_embedding"):
+        tgt_emb = tf.get_variable("embedding",
+                                  [tgt_vocab_size, params.embedding_size])
+        tgt_bias = tf.get_variable("bias", [params.embedding_size])
+        tgt_inputs = tf.nn.embedding_lookup(tgt_emb, features["target"])
 
     src_inputs = tf.nn.bias_add(src_inputs, src_bias)
     tgt_inputs = tf.nn.bias_add(tgt_inputs, tgt_bias)
@@ -381,7 +386,7 @@ class RNNsearch(NMTModel):
             if params is None:
                 params = copy.copy(self.parameters)
             else:
-                params= copy.copy(params)
+                params = copy.copy(params)
             params.dropout = 0.0
             params.use_variational_dropout = False
             params.label_smoothing = 0.0

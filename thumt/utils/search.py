@@ -20,11 +20,9 @@ def compute_batch_indices(batch_size, beam_size):
     batch the beam item is in. This will create the i of the i,j coordinate
     needed for the gather.
 
-    Args:
-        batch_size: Batch size
-        beam_size: Size of the beam.
-    Returns:
-        batch_pos: [batch_size, beam_size] tensor of ids
+    :param batch_size: Batch size
+    :param beam_size: Size of the beam.
+    :returns: batch_pos: [batch_size, beam_size] tensor of ids
     """
     batch_pos = tf.range(batch_size * beam_size) // beam_size
     batch_pos = tf.reshape(batch_pos, [batch_size, beam_size])
@@ -39,23 +37,20 @@ def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
     scores, and flags, and returns the top k from sequences, scores_to_gather,
     and flags based on the values in scores.
 
-    Args:
-        sequences: Tensor of sequences that we need to gather from.
-            [batch_size, beam_size, seq_length]
-        scores: Tensor of scores for each sequence in sequences.
-            [batch_size, beam_size]. We will use these to compute the topk.
-        scores_to_gather: Tensor of scores for each sequence in sequences.
-            [batch_size, beam_size]. We will return the gathered scores from
-            here. Scores to gather is different from scores because for
-            grow_alive, we will need to return log_probs, while for
-            grow_finished, we will need to return the length penalized scors.
-        flags: Tensor of bools for sequences that say whether a sequence has
-            reached EOS or not
-        beam_size: int
-        batch_size: int
-    Returns:
-        Tuple of
-        (topk_seq [batch_size, beam_size, decode_length],
+    :param sequences: Tensor of sequences that we need to gather from.
+        [batch_size, beam_size, seq_length]
+    :param scores: Tensor of scores for each sequence in sequences.
+        [batch_size, beam_size]. We will use these to compute the topk.
+    :param scores_to_gather: Tensor of scores for each sequence in sequences.
+        [batch_size, beam_size]. We will return the gathered scores from
+        here. Scores to gather is different from scores because for
+        grow_alive, we will need to return log_probs, while for
+        grow_finished, we will need to return the length penalized scors.
+    :param flags: Tensor of bools for sequences that say whether a sequence has
+        reached EOS or not
+    :param beam_size: int
+    :param batch_size: int
+    :returns: Tuple of (topk_seq [batch_size, beam_size, decode_length],
         topk_gathered_scores [batch_size, beam_size],
         topk_finished_flags[batch_size, beam_size])
     """
@@ -88,22 +83,19 @@ def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
     the logits for the next symbol. The implementation is inspired by
     https://arxiv.org/abs/1609.08144.
 
-    Args:
-        symbols_to_logits_fn: Interface to the model, to provide logits.
-                Should take [batch_size, decoded_ids] and return [
-                batch_size, vocab_size]
-        initial_ids: Ids to start off the decoding, this will be the first
-                thing handed to symbols_to_logits_fn
-                (after expanding to beam size) [batch_size]
-        beam_size: Size of the beam.
-        decode_length: Number of steps to decode for.
-        vocab_size: Size of the vocab, must equal the size of the logits
-                returned by symbols_to_logits_fn
-        alpha: alpha for length penalty.
-        eos_id: ID for end of sentence.
-    Returns:
-        Tuple of
-        (decoded beams [batch_size, beam_size, decode_length]
+    :param symbols_to_logits_fn: Interface to the model, to provide logits.
+        Should take [batch_size, decoded_ids] and return [
+        batch_size, vocab_size]
+    :param initial_ids: Ids to start off the decoding, this will be the first
+        thing handed to symbols_to_logits_fn
+        (after expanding to beam size) [batch_size]
+    :param beam_size: Size of the beam.
+    :param decode_length: Number of steps to decode for.
+    :param vocab_size: Size of the vocab, must equal the size of the logits
+        returned by symbols_to_logits_fn
+    :param alpha: alpha for length penalty.
+    :param eos_id: ID for end of sentence.
+    :returns: Tuple of (decoded beams [batch_size, beam_size, decode_length]
         decoding probabilities [batch_size, beam_size])
     """
     batch_size = tf.shape(initial_ids)[0]
@@ -130,20 +122,19 @@ def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
         """Given sequences and scores, will gather the top k=beam size
            sequences.
 
-        Args:
-            finished_seq: Current finished sequences.
-                [batch_size, beam_size, current_decoded_length]
-            finished_scores: scores for each of these sequences.
-                [batch_size, beam_size]
-            finished_flags: finished bools for each of these sequences.
-                [batch_size, beam_size]
-            curr_seq: current topk sequence that has been grown by one
-                position. [batch_size, beam_size, current_decoded_length]
-            curr_scores: scores for each of these sequences.
-                [batch_size, beam_size]
-            curr_finished: Finished flags for each of these sequences.
-                [batch_size, beam_size]
-        Returns:
+        :param finished_seq: Current finished sequences.
+            [batch_size, beam_size, current_decoded_length]
+        :param finished_scores: scores for each of these sequences.
+            [batch_size, beam_size]
+        :param finished_flags: finished bools for each of these sequences.
+            [batch_size, beam_size]
+        :param curr_seq: current topk sequence that has been grown by one
+            position. [batch_size, beam_size, current_decoded_length]
+        :param curr_scores: scores for each of these sequences.
+            [batch_size, beam_size]
+        :param curr_finished: Finished flags for each of these sequences.
+            [batch_size, beam_size]
+        :returns:
             Tuple of
                 (Top-k sequences based on scores,
                 log probs of these sequences,
@@ -152,8 +143,9 @@ def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
         # First append a column of 0'ids to finished to make the same length
         # with finished scores
         finished_seq = tf.concat(
-                [finished_seq,
-                tf.zeros([batch_size, beam_size, 1], tf.int32)], axis=2)
+            [finished_seq, tf.zeros([batch_size, beam_size, 1], tf.int32)],
+            axis=2
+        )
 
         # Set the scores of the unfinished seq in curr_seq to large negative
         # values
@@ -172,16 +164,15 @@ def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
         """Given sequences and scores, will gather the top k=beam size
            sequences.
 
-        Args:
-            curr_seq: current topk sequence that has been grown by one
-                position. [batch_size, beam_size, i+1]
-            curr_scores: scores for each of these sequences.
-                [batch_size, beam_size]
-            curr_log_probs: log probs for each of these sequences.
-                [batch_size, beam_size]
-            curr_finished: Finished flags for each of these sequences.
-                [batch_size, beam_size]
-        Returns:
+        :param curr_seq: current topk sequence that has been grown by one
+            position. [batch_size, beam_size, i+1]
+        :param curr_scores: scores for each of these sequences.
+            [batch_size, beam_size]
+        :param curr_log_probs: log probs for each of these sequences.
+            [batch_size, beam_size]
+        :param curr_finished: Finished flags for each of these sequences.
+            [batch_size, beam_size]
+        :returns:
             Tuple of
                 (Top-k sequences based on scores,
                 log probs of these sequences,
@@ -207,13 +198,12 @@ def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
         Length penalty is given by = (5+len(decode)/6) ^ -\alpha. Pls refer to
         https://arxiv.org/abs/1609.08144.
 
-        Args:
-            i: loop index
-            alive_seq: Topk sequences decoded so far
+        :param i: loop index
+        :param alive_seq: Topk sequences decoded so far
             [batch_size, beam_size, i+1]
-            alive_log_probs: probabilities of these sequences.
+        :param alive_log_probs: probabilities of these sequences.
             [batch_size, beam_size]
-        Returns:
+        :returns:
             Tuple of
                 (Top-k sequences extended by the next word,
                 The log probs of these sequences,
@@ -236,9 +226,11 @@ def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
             log_prob_from_logits(logits)
             for logits in logits_list
         ]
-        candidate_log_probs = tf.add_n(candidate_log_probs) / len(candidate_log_probs)
 
-        # Multiply the probabilites by the current probabilites of the beam.
+        n_models = len(candidate_log_probs)
+        candidate_log_probs = tf.add_n(candidate_log_probs) / float(n_models)
+
+        # Multiply the probabilities by the current probabilities of the beam.
         # (batch_size, beam_size, vocab_size) + (batch_size, beam_size, 1)
         log_probs = candidate_log_probs + tf.expand_dims(alive_log_probs,
                                                          axis=2)
@@ -307,20 +299,19 @@ def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
         that when a true finished sequence does appear, it will have a higher
         score than all the unfinished ones.
 
-        Args:
-            i: loop index
-            alive_seq: Topk sequences decoded so far
-                [batch_size, beam_size, i+1]
-            alive_log_probs: probabilities of the beams.
-                [batch_size, beam_size]
-            finished_seq: Current finished sequences.
-                [batch_size, beam_size, i+1]
-            finished_scores: scores for each of these sequences.
-                [batch_size, beam_size]
-            finished_flags: finished bools for each of these sequences.
-                [batch_size, beam_size]
+        :param i: loop index
+        :param alive_seq: Topk sequences decoded so far
+            [batch_size, beam_size, i+1]
+        :param alive_log_probs: probabilities of the beams.
+            [batch_size, beam_size]
+        :param finished_seq: Current finished sequences.
+            [batch_size, beam_size, i+1]
+        :param finished_scores: scores for each of these sequences.
+            [batch_size, beam_size]
+        :param finished_flags: finished bools for each of these sequences.
+            [batch_size, beam_size]
 
-        Returns:
+        :returns:
             Tuple of
                 (Incremented loop index
                 New alive sequences,
@@ -341,8 +332,8 @@ def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
                                                    topk_log_probs,
                                                    topk_finished)
         finished_seq, finished_scores, finished_flags = grow_finished(
-                finished_seq, finished_scores, finished_flags, topk_seq,
-                topk_scores, topk_finished
+            finished_seq, finished_scores, finished_flags, topk_seq,
+            topk_scores, topk_finished
         )
 
         return (i + 1, alive_seq, alive_log_probs, finished_seq,
@@ -356,17 +347,15 @@ def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
         item in finished has a greater score that the highest prob item in
         alive divided by the max length penalty
 
-        Args:
-            i: loop index
-            alive_log_probs: probabilities of the beams.
-                [batch_size, beam_size]
-            finished_scores: scores for each of these sequences.
-                [batch_size, beam_size]
-            finished_in_finished: finished bools for each of these sequences.
-                [batch_size, beam_size]
+        :param i: loop index
+        :param alive_log_probs: probabilities of the beams.
+            [batch_size, beam_size]
+        :param finished_scores: scores for each of these sequences.
+            [batch_size, beam_size]
+        :param finished_in_finished: finished bools for each of these
+            sequences. [batch_size, beam_size]
 
-        Returns:
-            Bool.
+        :returns: Bool.
         """
         max_length_penalty = tf.pow(((5. + tf.to_float(decode_length)) / 6.),
                                     alpha)
@@ -377,20 +366,20 @@ def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
         # If the sequence isn't finished, we multiply it's score by 0. since
         # scores are all -ve, taking the min will give us the score of the
         # lowest finished item.
-        lowest_score_of_fininshed_in_finished = tf.reduce_min(
+        lowest_score_of_finished_in_finished = tf.reduce_min(
             finished_scores * tf.to_float(finished_in_finished), axis=1
         )
         # If none of the sequences have finished, then the min will be 0 and
         # we have to replace it by -ve INF if it is. The score of any seq in
         # alive will be much higher than -ve INF and the termination condition
         # will not be met.
-        lowest_score_of_fininshed_in_finished += (
-                (1. - tf.to_float(tf.reduce_any(finished_in_finished, 1))) *
-                -INF)
+        lowest_score_of_finished_in_finished += (
+            (1. - tf.to_float(tf.reduce_any(finished_in_finished, 1))) * -INF
+        )
 
         bound_is_met = tf.reduce_all(
-            tf.greater(lowest_score_of_fininshed_in_finished,
-            lower_bound_alive_scores)
+            tf.greater(lowest_score_of_finished_in_finished,
+                       lower_bound_alive_scores)
         )
 
         return tf.logical_and(tf.less(i, decode_length),
@@ -460,7 +449,7 @@ def create_inference_graph(model_fns, features, params):
         return results
 
     batch_size = tf.shape(features["source"])[0]
-    # append <bos> symbol
+    # Prepend <bos> symbol
     bos_id = params.mapping["target"][params.bos]
     initial_ids = tf.fill([batch_size], tf.constant(bos_id, dtype=tf.int32))
 
@@ -485,7 +474,7 @@ def create_inference_graph(model_fns, features, params):
 
     # [batch, beam_size, length] => [batch * beam_size, length]
     features["source_length"] = tf.reshape(features["source_length"],
-                                    [shape[0] * shape[1]])
+                                           [shape[0] * shape[1]])
 
     vocab_size = len(params.vocabulary["target"])
     # Setting decode length to input length + decode_length
