@@ -13,8 +13,8 @@ import numpy as np
 import tensorflow as tf
 
 import thumt.models as models
-import thumt.data.dataset as dataset
 import thumt.utils.search as search
+import thumt.data.dataset as dataset
 import thumt.data.vocab as vocabulary
 
 
@@ -29,15 +29,15 @@ def parse_args():
                         help="Path of input file")
     parser.add_argument("--output", type=str, required=True,
                         help="Path of output file")
-    parser.add_argument("--path", type=str, required=True,
+    parser.add_argument("--checkpoints", type=str, nargs="+", required=True,
                         help="Path of trained models")
     parser.add_argument("--vocabulary", type=str, nargs=2, required=True,
                         help="Path of source and target vocabulary")
 
     # model and configuration
-    parser.add_argument("--model", type=str, required=True,
+    parser.add_argument("--models", type=str, required=True, nargs="+",
                         help="Name of the model")
-    parser.add_argument("--parameters", type=str, default="",
+    parser.add_argument("--parameters", type=str,
                         help="Additional hyper parameters")
 
     return parser.parse_args()
@@ -51,7 +51,7 @@ def default_parameters():
         model=None,
         # vocabulary specific
         pad="<pad>",
-        bos="<eos>",
+        bos="<bos>",
         eos="<eos>",
         unk="<unk>",
         mapping=None,
@@ -65,7 +65,7 @@ def default_parameters():
         decode_constant=5.0,
         decode_normalize=False,
         device_list=[0],
-        num_threads=1
+        num_threads=6
     )
 
     return params
@@ -105,12 +105,8 @@ def import_params(model_dir, model_name, params):
 
 
 def override_parameters(params, args):
-    params.model = args.model
-    params.input = args.input
-    params.output = args.output
-    params.path = args.path
-    params.vocab = args.vocabulary
-    params.parse(args.parameters)
+    if args.parameters:
+        params.parse(args.parameters)
 
     params.vocabulary = {
         "source": vocabulary.load_vocabulary(args.vocabulary[0]),
@@ -152,38 +148,109 @@ def session_config(params):
     return config
 
 
+def set_variables(var_list, value_dict, prefix):
+    ops = []
+    for var in var_list:
+        for name in value_dict:
+            var_name = "/".join([prefix] + list(name.split("/")[1:]))
+
+            if var.name[:-2] == var_name:
+                tf.logging.info("restoring %s -> %s" % (name, var.name))
+                with tf.device("/cpu:0"):
+                    op = tf.assign(var, value_dict[name])
+                    ops.append(op)
+                break
+
+    return ops
+
+
 def main(args):
     tf.logging.set_verbosity(tf.logging.INFO)
-    model_cls = models.get_model(args.model)
-    params = default_parameters()
-    params = merge_parameters(params, model_cls.get_parameters())
-    params = import_params(args.path, args.model, params)
-    override_parameters(params, args)
+    # Load configs
+    model_cls_list = [models.get_model(model) for model in args.models]
+    params_list = [default_parameters() for _ in range(len(model_cls_list))]
+    params_list = [
+        merge_parameters(params, model_cls.get_parameters())
+        for params, model_cls in zip(params_list, model_cls_list)
+    ]
+    params_list = [
+        import_params(args.checkpoints[i], args.models[i], params_list[i])
+        for i in range(len(args.checkpoints))
+    ]
+    params_list = [
+        override_parameters(params_list[i], args)
+        for i in range(len(model_cls_list))
+    ]
 
     # Build Graph
     with tf.Graph().as_default():
+        model_var_lists = []
+
+        # Load checkpoints
+        for i, checkpoint in enumerate(args.checkpoints):
+            print("Loading %s" % checkpoint)
+            var_list = tf.train.list_variables(checkpoint)
+            values = {}
+            reader = tf.train.load_checkpoint(checkpoint)
+
+            for (name, shape) in var_list:
+                if not name.startswith(model_cls_list[i].get_name()):
+                    continue
+
+                if name.find("losses_avg") >= 0:
+                    continue
+
+                tensor = reader.get_tensor(name)
+                values[name] = tensor
+
+            model_var_lists.append(values)
+
+        # Build models
+        model_fns = []
+
+        for i in range(len(args.checkpoints)):
+            name = model_cls_list[i].get_name()
+            model = model_cls_list[i](params_list[i], name + "_%d" % i)
+            model_fn = model.get_inference_func()
+            model_fns.append(model_fn)
+
+        params = params_list[0]
         # Read input file
-        sorted_keys, sorted_inputs = dataset.sort_input_file(params.input)
+        sorted_keys, sorted_inputs = dataset.sort_input_file(args.input)
         # Build input queue
         features = dataset.get_inference_input(sorted_inputs, params)
-
-        # Build model
-        model = model_cls(params)
-        inference_fn = model.get_inference_func()
-        predictions = search.create_inference_graph(inference_fn, features,
+        predictions = search.create_inference_graph(model_fns, features,
                                                     params)
 
-        if not tf.gfile.Exists(params.path):
-            raise ValueError("Path %s not found" % params.path)
+        assign_ops = []
+
+        all_var_list = tf.trainable_variables()
+
+        for i in range(len(args.checkpoints)):
+            un_init_var_list = []
+            name = model_cls_list[i].get_name()
+
+            for v in all_var_list:
+                if v.name.startswith(name + "_%d" % i):
+                    un_init_var_list.append(v)
+
+            ops = set_variables(un_init_var_list, model_var_lists[i],
+                                name + "_%d" % i)
+            assign_ops.extend(ops)
+
+        assign_op = tf.group(*assign_ops)
 
         sess_creator = tf.train.ChiefSessionCreator(
-            checkpoint_dir=params.path,
             config=session_config(params)
         )
 
         results = []
 
+        # Create session
         with tf.train.MonitoredSession(session_creator=sess_creator) as sess:
+            # Restore variables
+            sess.run(assign_op)
+
             while not sess.should_stop():
                 results.append(sess.run(predictions))
                 message = "Finished batch %d" % len(results)
@@ -204,7 +271,7 @@ def main(args):
             restored_outputs.append(outputs[sorted_keys[index]])
 
         # Write to file
-        with open(params.output, "w") as outfile:
+        with open(args.output, "w") as outfile:
             for output in restored_outputs:
                 decoded = []
                 for idx in output:

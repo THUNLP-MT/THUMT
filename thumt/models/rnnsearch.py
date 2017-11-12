@@ -272,7 +272,7 @@ def model_graph(features, labels, params):
         shifted_outputs,
         decoder_output["values"]
     ]
-    maxout_size = params.hidden_size / params.maxnum
+    maxout_size = params.hidden_size // params.maxnum
 
     if labels is None:
         # Special case for non-incremental decoding
@@ -320,12 +320,7 @@ def model_graph(features, labels, params):
     )
     loss = tf.reduce_sum(ce * tgt_mask) / tf.reduce_sum(tgt_mask)
 
-    results = {
-        "loss": loss,
-        "logits": logits
-    }
-
-    return results
+    return loss
 
 
 class RNNsearch(NMTModel):
@@ -338,8 +333,8 @@ class RNNsearch(NMTModel):
             if params is None:
                 params = self.parameters
             with tf.variable_scope(self._scope, initializer=initializer):
-                results = model_graph(features, features["target"], params)
-                return results["loss"]
+                loss = model_graph(features, features["target"], params)
+                return loss
 
         return training_fn
 

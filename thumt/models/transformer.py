@@ -171,10 +171,12 @@ def model_graph(features, labels, mode, params):
 
     src_seq = features["source"]
     tgt_seq = features["target"]
-    src_mask = tf.sequence_mask(features["source_length"],
+    src_len = features["source_length"]
+    tgt_len = features["target_length"]
+    src_mask = tf.sequence_mask(src_len,
                                 maxlen=tf.shape(features["source"])[1],
                                 dtype=tf.float32)
-    tgt_mask = tf.sequence_mask(features["target_length"],
+    tgt_mask = tf.sequence_mask(tgt_len,
                                 maxlen=tf.shape(features["target"])[1],
                                 dtype=tf.float32)
 

@@ -139,13 +139,13 @@ def get_input_features(file_patterns, mode, params):
         "target": targets,
         "source_length": tf.to_int32(
             tf.reduce_sum(
-                tf.to_int32(tf.not_equal(feature_map["inputs"], 0)),
+                tf.to_float(tf.not_equal(feature_map["inputs"], 0)),
                 axis=1
             )
         ),
         "target_length": tf.to_int32(
             tf.reduce_sum(
-                tf.to_int32(tf.not_equal(feature_map["inputs"], 0)),
+                tf.to_float(tf.not_equal(feature_map["targets"], 0)),
                 axis=1
             )
         ),
