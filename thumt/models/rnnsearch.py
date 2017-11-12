@@ -1,6 +1,10 @@
 # coding=utf-8
 # Copyright 2017 The THUMT Authors
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import copy
 import tensorflow as tf
 import thumt.layers as layers
@@ -175,31 +179,6 @@ def _decoder(cell, inputs, memory, sequence_length, initial_state, dtype=None,
         }
 
     return result
-
-
-def model_parameters():
-    params = tf.contrib.training.HParams(
-        # vocabulary
-        pad="</s>",
-        unk="UNK",
-        eos="<eos>",
-        bos="</s>",
-        append_eos=True,
-        # model
-        rnn_cell="LegacyGRUCell",
-        embedding_size=620,
-        hidden_size=1000,
-        maxnum=2,
-        # regularization
-        dropout=0.2,
-        use_variational_dropout=False,
-        label_smoothing=0.1,
-        constant_batch_size=True,
-        batch_size=128,
-        max_length=80
-    )
-
-    return params
 
 
 def model_graph(features, labels, params):
@@ -404,4 +383,26 @@ class RNNsearch(NMTModel):
 
     @staticmethod
     def get_parameters():
-        return model_parameters()
+        params = tf.contrib.training.HParams(
+            # vocabulary
+            pad="<pad>",
+            unk="<unk>",
+            eos="<eos>",
+            bos="<bos>",
+            append_eos=False,
+            # model
+            rnn_cell="LegacyGRUCell",
+            embedding_size=620,
+            hidden_size=1000,
+            maxnum=2,
+            # regularization
+            dropout=0.2,
+            use_variational_dropout=False,
+            label_smoothing=0.1,
+            constant_batch_size=True,
+            batch_size=128,
+            max_length=80,
+            clip_grad_norm=5.0
+        )
+
+        return params

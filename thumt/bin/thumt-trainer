@@ -2,14 +2,27 @@
 # coding=utf-8
 # Copyright 2017 The THUMT Authors
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+import argparse
 import tensorflow as tf
 import thumt.launcher as launcher
 
 
-flags = tf.flags
-FLAGS = flags.FLAGS
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Training neural machine translation models",
+        usage="trainer.py [<args>] [-h | --help]"
+    )
 
-flags.DEFINE_string("config", None, "Path to configuration file")
+    parser.add_argument("--config-file", type=str, required=True,
+                        help="configuration file")
+    parser.add_argument("--device", type=int, nargs="+",
+                        help="GPU indices")
+
+    return parser.parse_args()
 
 
 def main(_):
@@ -17,4 +30,5 @@ def main(_):
 
 
 if __name__ == "__main__":
+    FLAGS = parse_args()
     tf.app.run()

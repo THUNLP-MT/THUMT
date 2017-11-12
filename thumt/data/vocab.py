@@ -1,6 +1,10 @@
 # coding=utf-8
 # Copyright 2017 The THUMT Authors
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import tensorflow as tf
 
 
@@ -25,7 +29,8 @@ def get_control_mapping(vocab, symbols):
     mapping = {}
 
     for i, token in enumerate(vocab):
-        if token in symbols:
-            mapping[token] = i
+        for symbol in symbols:
+            if symbol.decode("utf-8") == token.decode("utf-8"):
+                mapping[symbol] = i
 
     return mapping

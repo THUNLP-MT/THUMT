@@ -1,6 +1,10 @@
 # coding=utf-8
 # Copyright 2017 The THUMT Authors
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import math
 import tensorflow as tf
 
@@ -92,7 +96,7 @@ def attention_bias(inputs, mode, inf=-1e9, name=None):
     """
 
     with tf.name_scope(name, default_name="attention_bias", values=[inputs]):
-        if mode == "incremental":
+        if mode == "casual":
             length = inputs
             lower_triangle = tf.matrix_band_part(
                 tf.ones([length, length]), -1, 0

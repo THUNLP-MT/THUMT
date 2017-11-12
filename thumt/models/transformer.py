@@ -1,49 +1,15 @@
 # coding=utf-8
 # Copyright 2017 The THUMT Authors
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import copy
 import tensorflow as tf
 import thumt.layers as layers
 
 from .model import NMTModel
-
-
-def model_parameters():
-    params = tf.contrib.training.HParams(
-        pad="<pad>",
-        eos="<eos>",
-        bos="<eos>",
-        unk="<unk>",
-        append_eos=False,
-        hidden_size=512,
-        filter_size=2048,
-        num_heads=8,
-        num_encoder_layers=6,
-        num_decoder_layers=6,
-        attention_dropout=0.1,
-        residual_dropout=0.1,
-        relu_dropout=0.1,
-        label_smoothing=0.1,
-        attention_key_channels=0,
-        attention_value_channels=0,
-        multiply_embedding_mode="sqrt_depth",
-        shared_embedding_and_softmax_weights=False,
-        shared_source_target_embedding=False,
-        # Override default parameters
-        learning_rate_decay="noam",
-        initializer="uniform_unit_scaling",
-        initializer_gain=1.0,
-        learning_rate=2.0,
-        layer_preprocess="layer_norm",
-        layer_postprocess="none",
-        batch_size=4096,
-        constant_batch_size=False,
-        adam_beta1=0.9,
-        adam_beta2=0.98,
-        adam_epsilon=1e-9
-    )
-
-    return params
 
 
 def get_weights(params):
@@ -116,7 +82,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
     with tf.variable_scope(scope, default_name="encoder", dtype=dtype,
                            values=[inputs, bias]):
         x = inputs
-        for layer in xrange(params.num_encoder_layers):
+        for layer in range(params.num_encoder_layers):
             with tf.variable_scope("layer_%d" % layer):
                 with tf.variable_scope("self_attention"):
                     y = layers.attention.multihead_attention(
@@ -153,7 +119,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, dtype=None,
     with tf.variable_scope(scope, default_name="decoder", dtype=dtype,
                            values=[inputs, memory, bias, mem_bias]):
         x = inputs
-        for layer in xrange(params.num_decoder_layers):
+        for layer in range(params.num_decoder_layers):
             with tf.variable_scope("layer_%d" % layer):
                 with tf.variable_scope("self_attention"):
                     y = layers.attention.multihead_attention(
@@ -228,7 +194,7 @@ def model_graph(features, labels, mode, params):
     encoder_input = layers.attention.add_timing_signal(encoder_input)
     enc_attn_bias = layers.attention.attention_bias(src_mask, "masking")
     dec_attn_bias = layers.attention.attention_bias(tf.shape(targets)[1],
-                                                    "incremental")
+                                                    "casual")
 
     # Shift left
     decoder_input = tf.pad(targets, [[0, 0], [1, 0], [0, 0]])[:, :-1, :]
@@ -263,9 +229,9 @@ def model_graph(features, labels, mode, params):
     )
 
     ce = tf.reshape(ce, tf.shape(tgt_seq))
-    cost = tf.reduce_sum(ce * tgt_mask) / tf.reduce_sum(tgt_mask)
+    loss = tf.reduce_sum(ce * tgt_mask) / tf.reduce_sum(tgt_mask)
 
-    return cost
+    return loss
 
 
 class Transformer(NMTModel):
@@ -279,7 +245,7 @@ class Transformer(NMTModel):
                 params = self.parameters
             with tf.variable_scope(self._scope, initializer=initializer):
                 loss = model_graph(features, features["target"],
-                                      "train", params)
+                                   "train", params)
                 return loss
 
         return training_fn
@@ -290,8 +256,10 @@ class Transformer(NMTModel):
                 params = copy.copy(self.parameters)
             else:
                 params = copy.copy(params)
-            params.dropout = 0.0
-            params.use_variational_dropout = False
+
+            params.residual_dropout = 0.0
+            params.attention_dropout = 0.0
+            params.relu_dropout = 0.0
             params.label_smoothing = 0.0
 
             with tf.variable_scope(self._scope):
@@ -306,9 +274,11 @@ class Transformer(NMTModel):
             if params is None:
                 params = copy.copy(self.parameters)
             else:
-                params= copy.copy(params)
-            params.dropout = 0.0
-            params.use_variational_dropout = False
+                params = copy.copy(params)
+
+            params.residual_dropout = 0.0
+            params.attention_dropout = 0.0
+            params.relu_dropout = 0.0
             params.label_smoothing = 0.0
 
             with tf.variable_scope(self._scope):
@@ -324,4 +294,39 @@ class Transformer(NMTModel):
 
     @staticmethod
     def get_parameters():
-        return model_parameters()
+        params = tf.contrib.training.HParams(
+            pad="<pad>",
+            bos="<eos>",
+            eos="<eos>",
+            unk="<unk>",
+            append_eos=False,
+            hidden_size=512,
+            filter_size=2048,
+            num_heads=8,
+            num_encoder_layers=6,
+            num_decoder_layers=6,
+            attention_dropout=0.0,
+            residual_dropout=0.1,
+            relu_dropout=0.0,
+            label_smoothing=0.1,
+            attention_key_channels=0,
+            attention_value_channels=0,
+            multiply_embedding_mode="sqrt_depth",
+            shared_embedding_and_softmax_weights=False,
+            shared_source_target_embedding=False,
+            # Override default parameters
+            learning_rate_decay="noam",
+            initializer="uniform_unit_scaling",
+            initializer_gain=1.0,
+            learning_rate=1.0,
+            layer_preprocess="none",
+            layer_postprocess="layer_norm",
+            batch_size=4096,
+            constant_batch_size=False,
+            adam_beta1=0.9,
+            adam_beta2=0.98,
+            adam_epsilon=1e-9,
+            clip_grad_norm=0.0
+        )
+
+        return params

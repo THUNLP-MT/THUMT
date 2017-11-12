@@ -2,6 +2,10 @@
 # Code modified from Tensor2Tensor library
 # Copyright 2017 The THUMT Authors
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import tensorflow as tf
 
 
@@ -75,7 +79,7 @@ def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
 
 
 def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
-                vocab_size, alpha, eos_id):
+                vocab_size, alpha, eos_id, lp_constant=5.0):
     """Beam search with length penalties.
 
     Uses an interface specific to the sequence cnn models;
@@ -95,6 +99,7 @@ def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
         returned by symbols_to_logits_fn
     :param alpha: alpha for length penalty.
     :param eos_id: ID for end of sentence.
+    :param lp_constant: A floating number used in length penalty
     :returns: Tuple of (decoded beams [batch_size, beam_size, decode_length]
         decoding probabilities [batch_size, beam_size])
     """
@@ -235,7 +240,9 @@ def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
         log_probs = candidate_log_probs + tf.expand_dims(alive_log_probs,
                                                          axis=2)
 
-        length_penalty = tf.pow(((5. + tf.to_float(i + 1)) / 6.), alpha)
+        length_penalty = tf.pow(
+            ((lp_constant + tf.to_float(i + 1)) / (1.0 + lp_constant)), alpha
+        )
 
         curr_scores = log_probs / length_penalty
         # Flatten out (beam_size, vocab_size) probs in to a list of
@@ -421,19 +428,13 @@ def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
 
 
 def create_inference_graph(model_fns, features, params):
-    if isinstance(params, (list, tuple)):
-        params_list = params
-        params = params_list[0]
-    else:
-        params_list = [params]
-
     if not isinstance(model_fns, (list, tuple)):
         model_fns = [model_fns]
 
     decode_length = params.decode_length
     beam_size = params.beam_size
     top_beams = params.top_beams
-    alpha = params.alpha
+    alpha = params.decode_alpha
 
     # [batch, decoded_ids] => [batch, vocab_size]
     def symbols_to_logits_fn(decoded_ids):
@@ -444,7 +445,7 @@ def create_inference_graph(model_fns, features, params):
         results = []
 
         for i, model_fn in enumerate(model_fns):
-            results.append(model_fn(features, params_list[i]))
+            results.append(model_fn(features))
 
         return results
 
@@ -483,7 +484,8 @@ def create_inference_graph(model_fns, features, params):
     ids, scores = beam_search(symbols_to_logits_fn, initial_ids,
                               beam_size, decode_length, vocab_size,
                               alpha,
-                              eos_id=params.mapping["target"][params.eos])
+                              eos_id=params.mapping["target"][params.eos],
+                              lp_constant=params.decode_constant)
 
     # Set inputs back to the unexpanded inputs to not to confuse the Estimator
     features["source"] = inputs_old
@@ -491,7 +493,13 @@ def create_inference_graph(model_fns, features, params):
 
     # Return `top_beams` decoding
     # (also remove initial id from the beam search)
-    if top_beams == 1:
-        return ids[:, 0, 1:]
+    if not params.decode_normalize:
+        if top_beams == 1:
+            return ids[:, 0, 1:]
+        else:
+            return ids[:, :top_beams, 1:]
     else:
-        return ids[:, :top_beams, 1:]
+        if top_beams == 1:
+            return ids[:, 0, 1:], scores[:, 0]
+        else:
+            return ids[:, :top_beams, 1:], scores[:, :top_beams]

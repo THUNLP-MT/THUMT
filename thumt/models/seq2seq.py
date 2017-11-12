@@ -1,39 +1,16 @@
 # coding=utf-8
 # Copyright 2017 The THUMT Authors
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import copy
 import tensorflow as tf
 import thumt.layers as layers
 import thumt.utils.search as search
 
 from .model import NMTModel
-
-
-def model_parameters():
-    params = tf.contrib.training.HParams(
-        # vocabulary
-        pad="</s>",
-        unk="UNK",
-        eos="<eos>",
-        bos="</s>",
-        append_eos=False,
-        # model
-        rnn_cell="LSTMCell",
-        embedding_size=1000,
-        hidden_size=1000,
-        num_hidden_layers=4,
-        # regularization
-        dropout=0.2,
-        use_variational_dropout=False,
-        label_smoothing=0.1,
-        constant_batch_size=True,
-        batch_size=128,
-        max_length=80,
-        reverse_source=True,
-        use_residual=True
-    )
-
-    return params
 
 
 def model_graph(features, labels, params):
@@ -210,4 +187,28 @@ class Seq2Seq(NMTModel):
 
     @staticmethod
     def get_parameters():
-        return model_parameters()
+        params = tf.contrib.training.HParams(
+            # vocabulary
+            pad="<pad>",
+            bos="<eos>",
+            eos="<eos>",
+            unk="<unk>",
+            append_eos=False,
+            # model
+            rnn_cell="LSTMCell",
+            embedding_size=1000,
+            hidden_size=1000,
+            num_hidden_layers=4,
+            # regularization
+            dropout=0.2,
+            use_variational_dropout=False,
+            label_smoothing=0.1,
+            constant_batch_size=True,
+            batch_size=128,
+            max_length=80,
+            reverse_source=True,
+            use_residual=True,
+            clip_grad_norm=5.0
+        )
+
+        return params

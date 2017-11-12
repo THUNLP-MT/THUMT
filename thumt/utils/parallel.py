@@ -1,17 +1,12 @@
 # coding=utf-8
 # Copyright 2017 The THUMT Authors
 
-import six
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import operator
 import tensorflow as tf
-
-
-def _maybe_repeat(x, n):
-    if isinstance(x, list):
-        assert len(x) == n
-        return x
-    else:
-        return [x] * n
 
 
 class GPUParamServerDeviceSetter(object):
@@ -24,7 +19,7 @@ class GPUParamServerDeviceSetter(object):
     def __call__(self, op):
         if op.device:
             return op.device
-        if op.type not in ['Variable', 'VariableV2', 'VarHandleOp']:
+        if op.type not in ["Variable", "VariableV2", "VarHandleOp"]:
             return self.worker_device
 
         # Gets the least loaded ps_device
@@ -37,6 +32,14 @@ class GPUParamServerDeviceSetter(object):
         return device_name
 
 
+def _maybe_repeat(x, n):
+    if isinstance(x, list):
+        assert len(x) == n
+        return x
+    else:
+        return [x] * n
+
+
 def _create_device_setter(is_cpu_ps, worker, num_gpus):
     if is_cpu_ps:
         # tf.train.replica_device_setter supports placing variables on the CPU,
@@ -44,7 +47,7 @@ def _create_device_setter(is_cpu_ps, worker, num_gpus):
         return tf.train.replica_device_setter(
             worker_device=worker, ps_device="/cpu:0", ps_tasks=1)
     else:
-        gpus = ['/gpu:%d' % i for i in range(num_gpus)]
+        gpus = ["/gpu:%d" % i for i in range(num_gpus)]
         return GPUParamServerDeviceSetter(worker, gpus)
 
 
@@ -58,14 +61,14 @@ def data_parallelism(devices, fn, *args, **kwargs):
         # Transpose
         new_args = [list(x) for x in zip(*new_args)]
     else:
-        new_args = [[] for _ in xrange(num_worker)]
+        new_args = [[] for _ in range(num_worker)]
 
-    new_kwargs = [{} for _ in xrange(num_worker)]
+    new_kwargs = [{} for _ in range(num_worker)]
 
-    for k, v in six.iteritems(kwargs):
+    for k, v in kwargs.iteritems():
         vals = _maybe_repeat(v, num_worker)
 
-        for i in xrange(num_worker):
+        for i in range(num_worker):
             new_kwargs[i][k] = vals[i]
 
     fns = _maybe_repeat(fn, num_worker)
@@ -73,7 +76,7 @@ def data_parallelism(devices, fn, *args, **kwargs):
     # Now make the parallel call.
     outputs = []
 
-    for i in xrange(num_worker):
+    for i in range(num_worker):
         worker = "/gpu:%d" % i
         device_setter = _create_device_setter(False, worker, len(devices))
         with tf.variable_scope(tf.get_variable_scope(), reuse=(i != 0)):
@@ -103,9 +106,9 @@ def shard_features(features, device_list):
 
     datashard_to_features = []
 
-    for d in xrange(num_datashards):
+    for d in range(num_datashards):
         feat = {
-            k: v[d] for k, v in six.iteritems(sharded_features)
+            k: v[d] for k, v in sharded_features.iteritems()
         }
         datashard_to_features.append(feat)
 

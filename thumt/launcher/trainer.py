@@ -2,18 +2,22 @@
 # coding=utf-8
 # Copyright 2017 The THUMT Authors
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import os
 import argparse
 import numpy as np
 import tensorflow as tf
 
 import thumt.models as models
+import thumt.data.record as record
 import thumt.utils.search as search
 import thumt.data.dataset as dataset
 import thumt.data.vocab as vocabulary
-
-from thumt.utils.parallel import parallel_model
-from thumt.utils.hooks import BLEUHook, get_or_create_bleu_tensor
+import thumt.utils.parallel as parallel
+import thumt.utils.hooks as hooks
 
 
 def parse_args(args=None):
@@ -25,7 +29,10 @@ def parse_args(args=None):
     # input files
     parser.add_argument("--input", type=str, nargs=2,
                         help="Path of source and target corpus")
-    parser.add_argument("--output", type=str, help="Path to saved models")
+    parser.add_argument("--record", type=str,
+                        help="Path to tf.Record data")
+    parser.add_argument("--output", type=str, default="train",
+                        help="Path to saved models")
     parser.add_argument("--vocabulary", type=str, nargs=2,
                         help="Path of source and target vocabulary")
     parser.add_argument("--validation", type=str,
@@ -44,9 +51,11 @@ def parse_args(args=None):
 
 def default_parameters():
     params = tf.contrib.training.HParams(
-        input=None,
-        output=None,
-        model=None,
+        input=["", ""],
+        output="",
+        record="",
+        model="transformer",
+        vocab=["", ""],
         # Default training hyper parameters
         num_threads=6,
         batch_size=128,
@@ -60,38 +69,50 @@ def default_parameters():
         device_list=[0],
         initializer="uniform",
         initializer_gain=0.08,
-        learning_rate=1.0,
         adam_beta1=0.9,
         adam_beta2=0.999,
         adam_epsilon=1e-8,
         clip_grad_norm=5.0,
+        learning_rate=1.0,
         learning_rate_decay="noam",
         learning_rate_boundaries=[0],
         learning_rate_values=[0.0],
         keep_checkpoint_max=20,
+        keep_top_checkpoint_max=5,
         # Validation
         eval_steps=2000,
+        eval_secs=0,
         eval_batch_size=32,
-        alpha=0.6,
         top_beams=1,
         beam_size=4,
+        decode_alpha=0.6,
         decode_length=50,
+        decode_constant=5.0,
+        decode_normalize=False,
         validation="",
         references=[""],
-        save_checkpoint_secs=600
+        save_checkpoint_secs=0,
+        save_checkpoint_steps=1000
     )
 
     return params
 
 
-def import_params(model_dir, params):
-    p_name = os.path.join(model_dir, "/params.json")
-    m_name = os.path.join(model_dir, params.model + ".json")
+def import_params(model_dir, model_name, params):
+    model_dir = os.path.abspath(model_dir)
+    p_name = os.path.join(model_dir, "params.json")
+    m_name = os.path.join(model_dir, model_name + ".json")
+
+    if not tf.gfile.Exists(p_name) or not tf.gfile.Exists(m_name):
+        return params
+
     with tf.gfile.Open(p_name) as fd:
+        tf.logging.info("Restoring hyper parameters from %s" % p_name)
         json_str = fd.readline()
         params.parse_json(json_str)
 
     with tf.gfile.Open(m_name) as fd:
+        tf.logging.info("Restoring model parameters from %s" % m_name)
         json_str = fd.readline()
         params.parse_json(json_str)
 
@@ -136,14 +157,18 @@ def merge_parameters(params1, params2):
 
 
 def override_parameters(params, args):
-    params.input = args.input
-    params.output = args.output
     params.model = args.model
+    params.input = args.input or params.input
+    params.output = args.output or params.output
+    params.record = args.record or params.record
+    params.vocab = args.vocabulary or params.vocab
+    params.validation = args.validation or params.validation
+    params.references = args.references or params.references
     params.parse(args.parameters)
 
     params.vocabulary = {
-        "source": vocabulary.load_vocabulary(args.vocabulary[0]),
-        "target": vocabulary.load_vocabulary(args.vocabulary[1])
+        "source": vocabulary.load_vocabulary(params.vocab[0]),
+        "target": vocabulary.load_vocabulary(params.vocab[1])
     }
     params.vocabulary["source"] = vocabulary.process_vocabulary(
         params.vocabulary["source"], params
@@ -151,18 +176,19 @@ def override_parameters(params, args):
     params.vocabulary["target"] = vocabulary.process_vocabulary(
         params.vocabulary["target"], params
     )
+
+    control_symbols = [params.pad, params.bos, params.eos, params.unk]
+
     params.mapping = {
         "source": vocabulary.get_control_mapping(
             params.vocabulary["source"],
-            [params.pad, params.bos, params.eos, params.unk]
+            control_symbols
         ),
         "target": vocabulary.get_control_mapping(
             params.vocabulary["target"],
-            [params.pad, params.bos, params.eos, params.unk]
+            control_symbols
         )
     }
-    params.validation = args.validation
-    params.references = args.references
 
     return params
 
@@ -242,10 +268,13 @@ def main(args):
     tf.logging.set_verbosity(tf.logging.INFO)
     model_cls = models.get_model(args.model)
     params = default_parameters()
-    params = merge_parameters(params, model_cls.get_parameters())
-    params = override_parameters(params, args)
 
-    # Import parameters
+    # Import and override parameters
+    # Priorities (low -> high):
+    # default -> saved -> command
+    params = merge_parameters(params, model_cls.get_parameters())
+    params = import_params(args.output, args.model, params)
+    override_parameters(params, args)
 
     # Export all parameters and model specific parameters
     export_params(params.output, "params.json", params)
@@ -257,15 +286,20 @@ def main(args):
 
     # Build Graph
     with tf.Graph().as_default():
-        # Build input queue
-        features = dataset.get_training_input(params.input, params)
+        if not params.record:
+            # Build input queue
+            features = dataset.get_training_input(params.input, params)
+        else:
+            features = record.get_input_features(
+                os.path.join(params.record, "*train*"), "train", params
+            )
 
         # Build model
         initializer = get_initializer(params)
         model = model_cls(params)
 
         # Multi-GPU setting
-        sharded_losses = parallel_model(
+        sharded_losses = parallel.parallel_model(
             model.get_training_func(initializer),
             features,
             params.device_list
@@ -315,13 +349,8 @@ def main(args):
         else:
             eval_input_fn = None
 
-        # Validation
-        eval_fn = lambda f: search.create_inference_graph(
-            model.get_evaluation_func(), f, params
-        )
-
         # Add hooks
-        hooks = [
+        train_hooks = [
             tf.train.StopAtStepHook(last_step=params.train_steps),
             tf.train.NanTensorHook(loss),
             tf.train.LoggingTensorHook(
@@ -332,45 +361,43 @@ def main(args):
                     "target": tf.shape(features["target"])
                 },
                 every_n_iter=1
+            ),
+            tf.train.CheckpointSaverHook(
+                checkpoint_dir=params.output,
+                save_secs=params.save_checkpoint_secs or None,
+                save_steps=params.save_checkpoint_steps or None,
+                saver=tf.train.Saver(
+                    max_to_keep=params.keep_checkpoint_max,
+                    sharded=False
+                )
             )
         ]
 
         config = session_config(params)
 
         if eval_input_fn is not None:
-            score_tensor = get_or_create_bleu_tensor()
-            hooks.append(
-                BLEUHook(
-                    score_tensor,
-                    eval_fn,
+            train_hooks.append(
+                hooks.EvaluationHook(
+                    lambda f: search.create_inference_graph(
+                        model.get_evaluation_func(), f, params
+                    ),
                     lambda: eval_input_fn(eval_inputs, params),
                     lambda x: decode_target_ids(x, params),
                     params.output,
                     config,
-                    os.path.join(params.output, "best"),
-                    eval_steps=params.eval_steps,
-                    saver=tf.train.Saver(
-                        save_relative_paths=True
-                    )
+                    params.keep_top_checkpoint_max,
+                    eval_secs=params.eval_secs,
+                    eval_steps=params.eval_steps
                 )
             )
 
-        # scaffold -> MonitoredTrainingSession -> CheckpointSaverHook
-        scaffold = tf.train.Scaffold(
-            saver=tf.train.Saver(
-                max_to_keep=params.keep_checkpoint_max
-            )
-        )
-
-        # Create session
+        # Create session, do not use default CheckpointSaverHook
         with tf.train.MonitoredTrainingSession(
-                checkpoint_dir=params.output, hooks=hooks,
-                save_checkpoint_secs=params.save_checkpoint_secs,
-                scaffold=scaffold, config=config) as sess:
+                checkpoint_dir=params.output, hooks=train_hooks,
+                save_checkpoint_secs=None, config=config) as sess:
             while not sess.should_stop():
                 sess.run(train_op)
 
 
 if __name__ == "__main__":
-    parsed_args = parse_args()
     main(parse_args())

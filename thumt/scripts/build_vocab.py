@@ -2,6 +2,10 @@
 # coding=utf-8
 # Copyright 2017 The THUMT Authors
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import argparse
 import collections
 
@@ -46,7 +50,7 @@ def parse_args():
     parser.add_argument("output", default="vocab.txt",
                         help="Output vocabulary name")
     parser.add_argument("--limit", default=0, type=int, help="Vocabulary size")
-    parser.add_argument("--control", type=str,
+    parser.add_argument("--control", type=str, default="<pad>,<eos>,<unk>",
                         help="Add control symbols to vocabulary. "
                              "Control symbols are separated by comma.")
 
@@ -83,5 +87,4 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parsed_args = parse_args()
-    main(parsed_args)
+    main(parse_args())

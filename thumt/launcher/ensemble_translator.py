@@ -2,6 +2,11 @@
 # coding=utf-8
 # Copyright 2017 The THUMT Authors
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+import os
 import argparse
 import itertools
 import numpy as np
@@ -15,7 +20,7 @@ import thumt.data.vocab as vocabulary
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Translate using neural machine translation models",
+        description="Translate using existing NMT models",
         usage="translator.py [<args>] [-h | --help]"
     )
 
@@ -32,7 +37,7 @@ def parse_args():
     # model and configuration
     parser.add_argument("--models", type=str, required=True, nargs="+",
                         help="Name of the model")
-    parser.add_argument("--parameters", type=str, nargs="+",
+    parser.add_argument("--parameters", type=str,
                         help="Additional hyper parameters")
 
     return parser.parse_args()
@@ -52,11 +57,13 @@ def default_parameters():
         mapping=None,
         append_eos=False,
         # decoding
-        alpha=0.6,
         top_beams=1,
         beam_size=4,
+        decode_alpha=0.6,
         decode_length=50,
         decode_batch_size=32,
+        decode_constant=5.0,
+        decode_normalize=False,
         device_list=[0],
         num_threads=6
     )
@@ -82,12 +89,24 @@ def merge_parameters(params1, params2):
     return params
 
 
-def override_parameters(params, args, i):
-    params.input = args.input
-    params.output = args.output
+def import_params(model_dir, model_name, params):
+    model_dir = os.path.abspath(model_dir)
+    m_name = os.path.join(model_dir, model_name + ".json")
 
+    if not tf.gfile.Exists(m_name):
+        return params
+
+    with tf.gfile.Open(m_name) as fd:
+        tf.logging.info("Restoring model parameters from %s" % m_name)
+        json_str = fd.readline()
+        params.parse_json(json_str)
+
+    return params
+
+
+def override_parameters(params, args):
     if args.parameters:
-        params.parse(args.parameters[i])
+        params.parse(args.parameters)
 
     params.vocabulary = {
         "source": vocabulary.load_vocabulary(args.vocabulary[0]),
@@ -99,14 +118,17 @@ def override_parameters(params, args, i):
     params.vocabulary["target"] = vocabulary.process_vocabulary(
         params.vocabulary["target"], params
     )
+
+    control_symbols = [params.pad, params.bos, params.eos, params.unk]
+
     params.mapping = {
         "source": vocabulary.get_control_mapping(
             params.vocabulary["source"],
-            [params.pad, params.bos, params.eos, params.unk]
+            control_symbols
         ),
         "target": vocabulary.get_control_mapping(
             params.vocabulary["target"],
-            [params.pad, params.bos, params.eos, params.unk]
+            control_symbols
         )
     }
 
@@ -155,7 +177,11 @@ def main(args):
         for params, model_cls in zip(params_list, model_cls_list)
     ]
     params_list = [
-        override_parameters(params_list[i], args, i)
+        import_params(args.checkpoints[i], args.models[i], params_list[i])
+        for i in range(len(args.checkpoints))
+    ]
+    params_list = [
+        override_parameters(params_list[i], args)
         for i in range(len(model_cls_list))
     ]
 
@@ -191,12 +217,13 @@ def main(args):
             model_fn = model.get_inference_func()
             model_fns.append(model_fn)
 
+        params = params_list[0]
         # Read input file
         sorted_keys, sorted_inputs = dataset.sort_input_file(args.input)
         # Build input queue
-        features = dataset.get_inference_input(sorted_inputs, params_list[0])
+        features = dataset.get_inference_input(sorted_inputs, params)
         predictions = search.create_inference_graph(model_fns, features,
-                                                    params_list)
+                                                    params)
 
         assign_ops = []
 
@@ -217,7 +244,7 @@ def main(args):
         assign_op = tf.group(*assign_ops)
 
         sess_creator = tf.train.ChiefSessionCreator(
-            config=session_config(params_list[0])
+            config=session_config(params)
         )
 
         results = []
@@ -232,35 +259,32 @@ def main(args):
                 message = "Finished batch %d" % len(results)
                 tf.logging.log(tf.logging.INFO, message)
 
-    # Convert to plain text
-    vocab = params_list[0].vocabulary["target"]
-    outputs = []
+        # Convert to plain text
+        vocab = params.vocabulary["target"]
+        outputs = []
 
-    for result in results:
-        outputs.append(result.tolist())
+        for result in results:
+            outputs.append(result.tolist())
 
-    outputs = list(itertools.chain(*outputs))
+        outputs = list(itertools.chain(*outputs))
 
-    restored_outputs = []
+        restored_outputs = []
 
-    for index in range(len(sorted_inputs)):
-        restored_outputs.append(outputs[sorted_keys[index]])
+        for index in range(len(sorted_inputs)):
+            restored_outputs.append(outputs[sorted_keys[index]])
 
-    # Write to file
-    with open(args.output, "w") as outfile:
-        for output in restored_outputs:
-            decoded = [vocab[idx] for idx in output]
-            decoded = " ".join(decoded)
-            idx = decoded.find(params_list[0].eos)
+        # Write to file
+        with open(args.output, "w") as outfile:
+            for output in restored_outputs:
+                decoded = []
+                for idx in output:
+                    if idx == params.mapping["target"][params.eos]:
+                        break
+                    decoded.append(vocab[idx])
 
-            if idx >= 0:
-                output = decoded[:idx].strip()
-            else:
-                output = decoded.strip()
-
-            outfile.write("%s\n" % output)
+                decoded = " ".join(decoded)
+                outfile.write("%s\n" % decoded)
 
 
 if __name__ == "__main__":
-    parsed_args = parse_args()
-    main(parsed_args)
+    main(parse_args())

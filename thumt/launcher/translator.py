@@ -2,6 +2,11 @@
 # coding=utf-8
 # Copyright 2017 The THUMT Authors
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+import os
 import argparse
 import itertools
 import numpy as np
@@ -15,7 +20,7 @@ import thumt.data.vocab as vocabulary
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Translate using neural machine translation models",
+        description="Translate using existing NMT models",
         usage="translator.py [<args>] [-h | --help]"
     )
 
@@ -26,7 +31,7 @@ def parse_args():
                         help="Path of output file")
     parser.add_argument("--path", type=str, required=True,
                         help="Path of trained models")
-    parser.add_argument("--vocabulary", type=str, nargs=2,
+    parser.add_argument("--vocabulary", type=str, nargs=2, required=True,
                         help="Path of source and target vocabulary")
 
     # model and configuration
@@ -46,19 +51,21 @@ def default_parameters():
         model=None,
         # vocabulary specific
         pad="<pad>",
-        bos="<bos>",
+        bos="<eos>",
         eos="<eos>",
         unk="<unk>",
         mapping=None,
         append_eos=False,
         # decoding
-        alpha=0.6,
         top_beams=1,
         beam_size=4,
+        decode_alpha=0.6,
         decode_length=50,
         decode_batch_size=32,
+        decode_constant=5.0,
+        decode_normalize=False,
         device_list=[0],
-        num_threads=6
+        num_threads=1
     )
 
     return params
@@ -82,21 +89,29 @@ def merge_parameters(params1, params2):
     return params
 
 
-def import_params(output_dir, name, params):
-    if not tf.gfile.Exists(output_dir):
-        tf.gfile.MkDir(output_dir)
+def import_params(model_dir, model_name, params):
+    model_dir = os.path.abspath(model_dir)
+    m_name = os.path.join(model_dir, model_name + ".json")
 
-    # Save params as params.json
-    filename = os.path.join(output_dir, name)
-    with tf.gfile.Open(filename, "w") as fd:
-        fd.write(params.to_json())
+    if not tf.gfile.Exists(m_name):
+        return params
+
+    with tf.gfile.Open(m_name) as fd:
+        tf.logging.info("Restoring model parameters from %s" % m_name)
+        json_str = fd.readline()
+        params.parse_json(json_str)
+
+    return params
 
 
 def override_parameters(params, args):
+    params.model = args.model
     params.input = args.input
     params.output = args.output
     params.path = args.path
+    params.vocab = args.vocabulary
     params.parse(args.parameters)
+
     params.vocabulary = {
         "source": vocabulary.load_vocabulary(args.vocabulary[0]),
         "target": vocabulary.load_vocabulary(args.vocabulary[1])
@@ -107,14 +122,17 @@ def override_parameters(params, args):
     params.vocabulary["target"] = vocabulary.process_vocabulary(
         params.vocabulary["target"], params
     )
+
+    control_symbols = [params.pad, params.bos, params.eos, params.unk]
+
     params.mapping = {
         "source": vocabulary.get_control_mapping(
             params.vocabulary["source"],
-            [params.pad, params.bos, params.eos, params.unk]
+            control_symbols
         ),
         "target": vocabulary.get_control_mapping(
             params.vocabulary["target"],
-            [params.pad, params.bos, params.eos, params.unk]
+            control_symbols
         )
     }
 
@@ -139,7 +157,8 @@ def main(args):
     model_cls = models.get_model(args.model)
     params = default_parameters()
     params = merge_parameters(params, model_cls.get_parameters())
-    params = override_parameters(params, args)
+    params = import_params(args.path, args.model, params)
+    override_parameters(params, args)
 
     # Build Graph
     with tf.Graph().as_default():
@@ -187,18 +206,15 @@ def main(args):
         # Write to file
         with open(params.output, "w") as outfile:
             for output in restored_outputs:
-                decoded = [vocab[idx] for idx in output]
+                decoded = []
+                for idx in output:
+                    if idx == params.mapping["target"][params.eos]:
+                        break
+                    decoded.append(vocab[idx])
+
                 decoded = " ".join(decoded)
-                idx = decoded.find(params.eos)
-
-                if idx >= 0:
-                    output = decoded[:idx].strip()
-                else:
-                    output = decoded.strip()
-
-                outfile.write("%s\n" % output)
+                outfile.write("%s\n" % decoded)
 
 
 if __name__ == "__main__":
-    parsed_args = parse_args()
-    main(parsed_args)
+    main(parse_args())
