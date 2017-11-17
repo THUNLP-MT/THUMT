@@ -9,6 +9,7 @@ import copy
 import tensorflow as tf
 import thumt.layers as layers
 import thumt.utils.search as search
+from thumt.utils.loss import get_loss
 
 from .model import NMTModel
 
@@ -318,7 +319,7 @@ def model_graph(features, labels, params):
             maxlen=tf.shape(features["target"])[1]
         )
     )
-    loss = tf.reduce_sum(ce * tgt_mask) / tf.reduce_sum(tgt_mask)
+    loss = get_loss(features, params, ce, tgt_mask)
 
     return loss
 
@@ -332,7 +333,8 @@ class RNNsearch(NMTModel):
         def training_fn(features, params=None):
             if params is None:
                 params = self.parameters
-            with tf.variable_scope(self._scope, initializer=initializer):
+            with tf.variable_scope(self._scope, initializer=initializer, 
+                                    reuse=tf.AUTO_REUSE):
                 loss = model_graph(features, features["target"], params)
                 return loss
 

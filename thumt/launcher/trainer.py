@@ -14,6 +14,7 @@ import tensorflow as tf
 import thumt.models as models
 import thumt.data.record as record
 import thumt.utils.search as search
+import thumt.utils.mrt_utils as mrt_utils
 import thumt.data.dataset as dataset
 import thumt.data.vocab as vocabulary
 import thumt.utils.parallel as parallel
@@ -92,7 +93,12 @@ def default_parameters():
         validation="",
         references=[""],
         save_checkpoint_secs=0,
-        save_checkpoint_steps=1000
+        save_checkpoint_steps=1000,
+        # MRT
+        MRT = False,
+        alpha_MRT = 0.005,
+        sample_num_MRT = 10,
+        len_ratio_MRT = 1.5
     )
 
     return params
@@ -297,6 +303,9 @@ def main(args):
         # Build model
         initializer = get_initializer(params)
         model = model_cls(params)
+        if params.MRT:
+            assert params.batch_size == 1
+            features = mrt_utils.get_MRT(features, params, model)
 
         # Multi-GPU setting
         sharded_losses = parallel.parallel_model(
