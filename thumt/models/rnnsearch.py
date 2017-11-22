@@ -333,7 +333,7 @@ class RNNsearch(NMTModel):
         def training_fn(features, params=None):
             if params is None:
                 params = self.parameters
-            with tf.variable_scope(self._scope, initializer=initializer, 
+            with tf.variable_scope(self._scope, initializer=initializer,
                                     reuse=tf.AUTO_REUSE):
                 loss = model_graph(features, features["target"], params)
                 return loss
@@ -385,7 +385,7 @@ class RNNsearch(NMTModel):
             pad="<pad>",
             unk="<unk>",
             eos="<eos>",
-            bos="<bos>",
+            bos="<eos>",
             append_eos=False,
             # model
             rnn_cell="LegacyGRUCell",
@@ -398,7 +398,7 @@ class RNNsearch(NMTModel):
             label_smoothing=0.1,
             constant_batch_size=True,
             batch_size=128,
-            max_length=80,
+            max_length=60,
             clip_grad_norm=5.0
         )
 

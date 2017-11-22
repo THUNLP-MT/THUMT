@@ -126,13 +126,15 @@ def main(args):
         v = values[key]
         variables[n_keys[i]] = v
 
-    with tf.device("/cpu:0"):
-        tf_vars = [
-            tf.get_variable(v, initializer=variables[v], dtype=tf.float32)
-            for v in variables
-        ]
-        global_step = tf.Variable(0, name="global_step", trainable=False,
-                                  dtype=tf.int64)
+    with tf.Graph().as_default():
+        with tf.device("/cpu:0"):
+            tf_vars = [
+                tf.get_variable(v, initializer=variables[v], dtype=tf.float32)
+                for v in variables
+            ]
+            global_step = tf.Variable(0, name="global_step", trainable=False,
+                                      dtype=tf.int64)
+
         saver = tf.train.Saver(tf_vars)
 
         with tf.Session() as sess:
@@ -141,5 +143,4 @@ def main(args):
 
 
 if __name__ == "__main__":
-    arguments = parseargs()
-    main(arguments)
+    main(parseargs())
