@@ -62,7 +62,7 @@ def default_parameters():
         batch_size=128,
         max_length=256,
         length_multiplier=1,
-        mantissa_bits=1,
+        mantissa_bits=2,
         warmup_steps=4000,
         train_steps=100000,
         buffer_size=10000,

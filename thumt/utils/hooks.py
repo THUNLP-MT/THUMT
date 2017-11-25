@@ -268,7 +268,7 @@ class EvaluationHook(tf.train.SessionRunHook):
 
                     for o_file in old_files:
                         n_file = o_file.replace(old_path, new_path)
-                        tf.gfile.Copy(o_file, n_file)
+                        tf.gfile.Copy(o_file, n_file, overwrite=True)
 
                 if removed is not None:
                     filename = os.path.join(self._save_path, removed)
@@ -319,7 +319,7 @@ class EvaluationHook(tf.train.SessionRunHook):
 
                 for o_file in old_files:
                     n_file = o_file.replace(old_path, new_path)
-                    tf.gfile.Copy(o_file, n_file)
+                    tf.gfile.Copy(o_file, n_file, overwrite=True)
 
             if removed is not None:
                 filename = os.path.join(self._save_path, removed)

@@ -16,13 +16,17 @@ from tensorflow.contrib.slim import parallel_reader, tfexample_decoder
 
 def input_pipeline(file_pattern, mode, capacity=64):
     keys_to_features = {
-        "inputs": tf.VarLenFeature(tf.int64),
-        "targets": tf.VarLenFeature(tf.int64)
+        "source": tf.VarLenFeature(tf.int64),
+        "target": tf.VarLenFeature(tf.int64),
+        "source_length": tf.FixedLenFeature([1], tf.int64),
+        "target_length": tf.FixedLenFeature([1], tf.int64)
     }
 
     items_to_handlers = {
-        "inputs": tfexample_decoder.Tensor("inputs"),
-        "targets": tfexample_decoder.Tensor("targets")
+        "source": tfexample_decoder.Tensor("source"),
+        "target": tfexample_decoder.Tensor("target") ,
+        "source_length": tfexample_decoder.Tensor("source_length"),
+        "target_length": tfexample_decoder.Tensor("target_length")
     }
 
     # Now the non-trivial case construction.
@@ -128,27 +132,11 @@ def get_input_features(file_patterns, mode, params):
                 drop_long_sequences
             )
 
-    targets = feature_map["targets"]
-    bos_id = params.mapping["target"][params.bos]
-    targets = tf.pad(targets, [[0, 0], [1, 0]],
-                     constant_values=bos_id)[:, :-1]
-
-    # Final feature map.
-    features = {
-        "source": feature_map["inputs"],
-        "target": targets,
-        "source_length": tf.to_int32(
-            tf.reduce_sum(
-                tf.to_float(tf.not_equal(feature_map["inputs"], 0)),
-                axis=1
-            )
-        ),
-        "target_length": tf.to_int32(
-            tf.reduce_sum(
-                tf.to_float(tf.not_equal(feature_map["targets"], 0)),
-                axis=1
-            )
-        ),
-    }
+        features = {
+            "source": feature_map["source"],
+            "target": feature_map["target"],
+            "source_length": tf.squeeze(feature_map["source_length"], axis=1),
+            "target_length": tf.squeeze(feature_map["target_length"], axis=1)
+        }
 
     return features
