@@ -120,7 +120,7 @@ def layer_norm(inputs, epsilon=1e-6, dtype=None, scope=None):
 def smoothed_softmax_cross_entropy_with_logits(**kwargs):
     logits = kwargs.get("logits")
     labels = kwargs.get("labels")
-    smoothing = kwargs.get("label_smoothing") or 0.0
+    smoothing = kwargs.get("smoothing") or 0.0
     normalize = kwargs.get("normalize")
     scope = kwargs.get("scope")
 
