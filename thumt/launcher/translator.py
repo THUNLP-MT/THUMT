@@ -6,16 +6,16 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
 import argparse
 import itertools
+import os
+
 import numpy as np
 import tensorflow as tf
-
-import thumt.models as models
-import thumt.utils.search as search
 import thumt.data.dataset as dataset
 import thumt.data.vocab as vocabulary
+import thumt.models as models
+import thumt.utils.search as search
 
 
 def parse_args():

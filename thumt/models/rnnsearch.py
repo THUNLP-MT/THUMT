@@ -6,6 +6,7 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
+
 import tensorflow as tf
 import thumt.layers as layers
 import thumt.utils.search as search
@@ -128,7 +129,7 @@ def _decoder(cell, inputs, memory, sequence_length, initial_state, dtype=None,
                                   tensor_array_name="alpha_array")
         input_ta = input_ta.unstack(inputs)
         initial_state = layers.nn.linear(initial_state, output_size, True,
-                                         scope="s_transform")
+                                         False, scope="s_transform")
         initial_state = tf.tanh(initial_state)
 
         def loop_func(t, out_ta, att_ta, val_ta, state, cache_key):
@@ -285,24 +286,25 @@ def model_graph(features, labels, params):
         maxhid = layers.nn.maxout(maxout_features, maxout_size, params.maxnum,
                                   concat=False)
         readout = layers.nn.linear(maxhid, params.embedding_size, False,
-                                   scope="deepout")
+                                   False, scope="deepout")
 
         # Prediction
-        logits = layers.nn.linear(readout, tgt_vocab_size, True,
+        logits = layers.nn.linear(readout, tgt_vocab_size, True, False,
                                   scope="softmax")
 
         return logits
 
     maxhid = layers.nn.maxout(maxout_features, maxout_size, params.maxnum,
                               concat=False)
-    readout = layers.nn.linear(maxhid, params.embedding_size, False,
+    readout = layers.nn.linear(maxhid, params.embedding_size, False, False,
                                scope="deepout")
 
     if params.dropout and not params.use_variational_dropout:
         readout = tf.nn.dropout(readout, 1.0 - params.dropout)
 
     # Prediction
-    logits = layers.nn.linear(readout, tgt_vocab_size, True, scope="softmax")
+    logits = layers.nn.linear(readout, tgt_vocab_size, True, False,
+                              scope="softmax")
     logits = tf.reshape(logits, [-1, tgt_vocab_size])
 
     ce = layers.nn.smoothed_softmax_cross_entropy_with_logits(
@@ -325,7 +327,6 @@ def model_graph(features, labels, params):
 
 
 class RNNsearch(NMTModel):
-
     def __init__(self, params, scope="rnnsearch"):
         super(RNNsearch, self).__init__(params=params, scope=scope)
 
@@ -334,7 +335,7 @@ class RNNsearch(NMTModel):
             if params is None:
                 params = self.parameters
             with tf.variable_scope(self._scope, initializer=initializer,
-                                    reuse=tf.AUTO_REUSE):
+                                   reuse=tf.AUTO_REUSE):
                 loss = model_graph(features, features["target"], params)
                 return loss
 

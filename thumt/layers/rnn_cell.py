@@ -31,9 +31,9 @@ class LegacyGRUCell(tf.nn.rnn_cell.RNNCell):
 
             all_inputs = list(inputs) + [state]
             r = tf.nn.sigmoid(linear(all_inputs, self._num_units, False, False,
-                              scope="reset_gate"))
+                                     scope="reset_gate"))
             u = tf.nn.sigmoid(linear(all_inputs, self._num_units, False, False,
-                              scope="update_gate"))
+                                     scope="update_gate"))
             all_inputs = list(inputs) + [r * state]
             c = linear(all_inputs, self._num_units, True, False,
                        scope="candidate")

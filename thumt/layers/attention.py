@@ -214,14 +214,15 @@ def additive_attention(queries, keys, values, bias, hidden_size, concat=False,
 
         if concat:
             combined = tf.tanh(linear(tf.concat([q, k], axis=-1), hidden_size,
-                                      True, name="qk_transform"))
+                                      True, True, name="qk_transform"))
         else:
-            q = linear(queries, hidden_size, True, name="q_transform")
-            k = linear(keys, hidden_size, True, name="key_transform")
+            q = linear(queries, hidden_size, True, True, name="q_transform")
+            k = linear(keys, hidden_size, True, True, name="key_transform")
             combined = tf.tanh(q + k)
 
         # shape: [batch, heads, length_q, length_kv]
-        logits = tf.squeeze(linear(combined, 1, True, name="logits"), axis=-1)
+        logits = tf.squeeze(linear(combined, 1, True, True, name="logits"),
+                            axis=-1)
 
         if bias is not None:
             logits += bias
@@ -307,11 +308,11 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         if memories is None:
             # self attention
             size = key_size * 2 + value_size
-            combined = linear(queries, size, True, scope="qkv_transform")
+            combined = linear(queries, size, True, True, scope="qkv_transform")
             q, k, v = tf.split(combined, [key_size, key_size, value_size],
                                axis=-1)
         else:
-            q = linear(queries, key_size, True, scope="q_transform")
+            q = linear(queries, key_size, True, True, scope="q_transform")
             combined = linear(memories, key_size + value_size, True,
                               scope="kv_transform")
             k, v = tf.split(combined, [key_size, value_size], axis=-1)
@@ -333,7 +334,8 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         x = combine_heads(results["outputs"])
 
         if output:
-            outputs = linear(x, output_size, True, scope="output_transform")
+            outputs = linear(x, output_size, True, True,
+                             scope="output_transform")
         else:
             outputs = x
 

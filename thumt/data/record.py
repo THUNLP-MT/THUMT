@@ -6,11 +6,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import six
 import math
-import numpy as np
-import tensorflow as tf
 
+import numpy as np
+import six
+import tensorflow as tf
 from tensorflow.contrib.slim import parallel_reader, tfexample_decoder
 
 
@@ -24,7 +24,7 @@ def input_pipeline(file_pattern, mode, capacity=64):
 
     items_to_handlers = {
         "source": tfexample_decoder.Tensor("source"),
-        "target": tfexample_decoder.Tensor("target") ,
+        "target": tfexample_decoder.Tensor("target"),
         "source_length": tfexample_decoder.Tensor("source_length"),
         "target_length": tfexample_decoder.Tensor("target_length")
     }

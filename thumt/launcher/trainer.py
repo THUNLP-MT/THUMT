@@ -6,19 +6,19 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
 import argparse
+import os
+
 import numpy as np
 import tensorflow as tf
-
-import thumt.models as models
-import thumt.data.record as record
-import thumt.utils.search as search
-import thumt.utils.mrt_utils as mrt_utils
 import thumt.data.dataset as dataset
+import thumt.data.record as record
 import thumt.data.vocab as vocabulary
-import thumt.utils.parallel as parallel
+import thumt.models as models
 import thumt.utils.hooks as hooks
+import thumt.utils.mrt_utils as mrt_utils
+import thumt.utils.parallel as parallel
+import thumt.utils.search as search
 
 
 def parse_args(args=None):
@@ -95,10 +95,10 @@ def default_parameters():
         save_checkpoint_secs=0,
         save_checkpoint_steps=1000,
         # MRT
-        MRT = False,
-        alpha_MRT = 0.005,
-        sample_num_MRT = 10,
-        len_ratio_MRT = 1.5
+        MRT=False,
+        alpha_MRT=0.005,
+        sample_num_MRT=10,
+        len_ratio_MRT=1.5
     )
 
     return params
@@ -332,6 +332,7 @@ def main(args):
 
         learning_rate = get_learning_rate_decay(params.learning_rate,
                                                 global_step, params)
+        learning_rate = tf.convert_to_tensor(learning_rate, dtype=tf.float32)
         tf.summary.scalar("learning_rate", learning_rate)
 
         # Create optimizer

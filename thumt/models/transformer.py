@@ -6,6 +6,7 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
+
 import tensorflow as tf
 import thumt.layers as layers
 from thumt.utils.loss import get_loss
@@ -67,14 +68,14 @@ def ffn_layer(inputs, hidden_size, output_size, keep_prob=None,
     with tf.variable_scope(scope, default_name="ffn_layer", values=[inputs],
                            dtype=dtype):
         with tf.variable_scope("input_layer"):
-            hidden = layers.nn.linear(inputs, hidden_size, True)
+            hidden = layers.nn.linear(inputs, hidden_size, True, True)
             hidden = tf.nn.relu(hidden)
 
         if keep_prob and keep_prob < 1.0:
             hidden = tf.nn.dropout(hidden, keep_prob)
 
         with tf.variable_scope("output_layer"):
-            output = layers.nn.linear(hidden, output_size, True)
+            output = layers.nn.linear(hidden, output_size, True, True)
 
         return output
 
@@ -238,7 +239,6 @@ def model_graph(features, labels, mode, params):
 
 
 class Transformer(NMTModel):
-
     def __init__(self, params, scope="transformer"):
         super(Transformer, self).__init__(params=params, scope=scope)
 
@@ -247,7 +247,7 @@ class Transformer(NMTModel):
             if params is None:
                 params = self.parameters
             with tf.variable_scope(self._scope, initializer=initializer,
-                                    reuse=tf.AUTO_REUSE):
+                                   reuse=tf.AUTO_REUSE):
                 loss = model_graph(features, features["target"],
                                    "train", params)
                 return loss

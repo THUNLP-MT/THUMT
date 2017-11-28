@@ -6,6 +6,7 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
+
 import tensorflow as tf
 import thumt.layers as layers
 import thumt.utils.search as search
@@ -134,7 +135,6 @@ def model_graph(features, labels, params):
 
 
 class Seq2Seq(NMTModel):
-
     def __init__(self, params, scope="seq2seq"):
         super(Seq2Seq, self).__init__(params=params, scope=scope)
 
@@ -143,7 +143,7 @@ class Seq2Seq(NMTModel):
             if params is None:
                 params = self.parameters
             with tf.variable_scope(self._scope, initializer=initializer,
-                                    reuse=tf.AUTO_REUSE):
+                                   reuse=tf.AUTO_REUSE):
                 loss = model_graph(features, features["target"], params)
                 return loss
 

@@ -8,7 +8,7 @@ from __future__ import print_function
 import tensorflow as tf
 
 
-def linear(inputs, output_size, bias, concat=False, dtype=None, scope=None):
+def linear(inputs, output_size, bias, concat=True, dtype=None, scope=None):
     """
     Linear layer
     :param inputs: A Tensor or a list of Tensors with shape [batch, input_size]
@@ -72,6 +72,8 @@ def maxout(inputs, output_size, maxpart=2, use_bias=True, concat=True,
     :param output_size: see the corresponding description of ``linear''
     :param maxpart: an integer, the default value is 2
     :param use_bias: a boolean value indicate whether to use bias term
+    :param concat: concat all tensors if inputs is a list of tensors
+    :param dtype: an optional instance of tf.Dtype
     :param scope: the scope of this layer, the default value is ``maxout''
     :returns: a Tensor with shape [batch, output_size]
     :raises RuntimeError: see the corresponding description of ``linear''

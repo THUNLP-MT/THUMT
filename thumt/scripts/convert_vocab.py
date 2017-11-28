@@ -6,9 +6,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import sys
 import cPickle
-
+import sys
 
 if __name__ == "__main__":
     with open(sys.argv[1]) as fd:
