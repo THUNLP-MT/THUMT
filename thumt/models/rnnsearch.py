@@ -310,7 +310,7 @@ def model_graph(features, labels, params):
     ce = layers.nn.smoothed_softmax_cross_entropy_with_logits(
         logits=logits,
         labels=labels,
-        label_smoothing=params.label_smoothing,
+        smoothing=params.label_smoothing,
         normalize=True
     )
 

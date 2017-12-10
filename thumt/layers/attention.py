@@ -96,7 +96,7 @@ def attention_bias(inputs, mode, inf=-1e9, name=None):
     """
 
     with tf.name_scope(name, default_name="attention_bias", values=[inputs]):
-        if mode == "casual":
+        if mode == "causal":
             length = inputs
             lower_triangle = tf.matrix_band_part(
                 tf.ones([length, length]), -1, 0

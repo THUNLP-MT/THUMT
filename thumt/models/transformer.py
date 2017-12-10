@@ -198,7 +198,7 @@ def model_graph(features, labels, mode, params):
     encoder_input = layers.attention.add_timing_signal(encoder_input)
     enc_attn_bias = layers.attention.attention_bias(src_mask, "masking")
     dec_attn_bias = layers.attention.attention_bias(tf.shape(targets)[1],
-                                                    "casual")
+                                                    "causal")
 
     # Shift left
     decoder_input = tf.pad(targets, [[0, 0], [1, 0], [0, 0]])[:, :-1, :]
