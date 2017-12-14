@@ -1,14 +1,11 @@
 # THUMT: An Open Source Toolkit for Neural Machine Translation
 ## Contents
 * [Introduction](#introduction)
-* [Website](#website)
-* [User Manual](#user-manual)
-* [Documentation](#documentation)
+* [Versions](#versions)
 * [License](#license)
 * [Citation](#citation)
 * [Development Team](#development-team)
 * [Contact](#contact)
-* [FAQ](#faq)
 
 ## Introduction
 
@@ -23,17 +20,11 @@ On top of [TensorFlow](http://tensorflow.org), THUMT is an open-source toolkit f
 
 Besides, THUMT also has Theano and DyNet implementations.
 
-## Website
-
-[http://thumt.thunlp.org](http://thumt.thunlp.org)
-
-## User Manual
-
-This [user manual](http://thumt.thunlp.org/static/THUMT.pdf) describes how to install and use THUMT.
-
-## Documentation
-
-This [documentation](http://thumt.thunlp.org/static/document/index.html) provides detailed information about the functions in THUMT.
+## Versions
+* [THUMT-TensorFlow](https://github.com/thumt/THUMT)
+* [THUMT-Theano](https://github.com/thumt/THUMT/tree/theano)
+* THUMT-DyNet (coming soon)
+* THUMT-Caffe (coming soon)
 
 ## License
 
