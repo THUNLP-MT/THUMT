@@ -1,7 +1,7 @@
 # THUMT: An Open Source Toolkit for Neural Machine Translation
 ## Contents
 * [Introduction](#introduction)
-* [Versions](#versions)
+* [Implementations](#implementations)
 * [License](#license)
 * [Citation](#citation)
 * [Development Team](#development-team)
@@ -9,22 +9,25 @@
 
 ## Introduction
 
-THUMT is a data-driven machine translation system developed by [the Natural Language Processing Group at Tsinghua University](http://nlp.csai.tsinghua.edu.cn/site2/index.php?lang=en).
-
 Machine translation is a natural language processing task that aims to translate natural languages using computers automatically. Recent several years have witnessed the rapid development of end-to-end neural machine translation, which has become the new mainstream method in practical MT systems.
 
-On top of [TensorFlow](http://tensorflow.org), THUMT is an open-source toolkit for neural machine translation with the following features:
+THUMT is an open-source toolkit for neural machine translation developed by [the Natural Language Processing Group at Tsinghua University](http://nlp.csai.tsinghua.edu.cn/site2/index.php?lang=en).
 
-* **Attention-based translation model.** THUMT implements the standard attention-based encoder-decoder framework for NMT. It also implements the latest Transformer architecture.
-* **Minimum risk training.** Besides standard maximum likelihood estimation (MLE), THUMT also supports minimum risk training (MRT) that aims to find a set of model parameters that minimize the expected loss calculated using evaluation metrics such as BLEU on the training data.
 
-Besides, THUMT also has Theano and DyNet implementations.
+## Implementations
+THUMT has currently two main implementations
 
-## Versions
-* [THUMT-TensorFlow](https://github.com/thumt/THUMT)
-* [THUMT-Theano](https://github.com/thumt/THUMT/tree/theano)
-* THUMT-DyNet (coming soon)
-* THUMT-Caffe (coming soon)
+* [THUMT-Theano](https://github.com/thumt/THUMT/tree/theano): the original project developed with [Theano](https://github.com/Theano/Theano), which is no longer updated because MLA put an end to [Theano](https://github.com/Theano/Theano). It implements the standard attention-based model (**RNNSearch**) ([Bahdanau et al., 2014](https://arxiv.org/pdf/1409.0473.pdf)), minimum risk training (**MRT**) ([Shen et al., 2016](http://nlp.csai.tsinghua.edu.cn/~ly/papers/acl2016_mrt.pdf)) for optimizing model parameters with respect to evaluation metrics, semi-supervised training (**SST**) ([Cheng et al., 2016](http://nlp.csai.tsinghua.edu.cn/~ly/papers/acl2016_semi.pdf)) for exploiting monolingual corpora to learn bi-directional translation models, and layer-wise relevance propagation (**LRP**) ([Ding et al., 2017](http://nlp.csai.tsinghua.edu.cn/~ly/papers/acl2017_dyz.pdf)) for visualizing and anlayzing RNNSearch.
+* [THUMT-TensorFlow](https://github.com/thumt/THUMT): a new implementation developed with [TensorFlow](https://github.com/tensorflow/tensorflow). It implements the sequence-to-sequence model (**Seq2Seq**) ([Sutskever et al., 2014](https://papers.nips.cc/paper/5346-sequence-to-sequence-learning-with-neural-networks.pdf)), the standard attention-based model (**RNNSearch**) ([Bahdanau et al., 2014](https://arxiv.org/pdf/1409.0473.pdf)), and the Transformer model (**Transformer**) ([Vaswani et al., 2017](https://arxiv.org/abs/1706.03762)).
+
+The following table summarizes the features of two implementations:
+
+| Implementation | Model | Criterion | LRP |
+| :------------: | :---: | :--------------: | :----------------: |
+| Theano       |  RNNsearch | MLE, MRT, SST | RNNsearch |   
+| TensorFlow   |  Seq2Seq, RNNsearch, Transformer | MLE, MRT| n/a |
+
+We recommend using [THUMT-TensorFlow](https://github.com/thumt/THUMT), which delivers better translation performance than [THUMT-Theano](https://github.com/thumt/THUMT/tree/theano). We will keep adding new features to [THUMT-TensorFlow](https://github.com/thumt/THUMT).
 
 ## License
 
