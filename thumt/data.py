@@ -399,6 +399,8 @@ class DataCollection(object):
 	
 	def format_num(self, x):
 		result = str(round(x, 2))
+		if not '.' in result[-3:]:
+			return result
 		while result[-3] != '.':
 			result += '0'
 		return result
