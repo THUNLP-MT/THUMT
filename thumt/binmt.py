@@ -76,7 +76,7 @@ class BiRNNsearch(model):
 			coff = coff + tensor.cast(tensor.eq(tmp_mask,0), dtype = 'float32') * (numpy.float32(-1000000))
 			coff = coff - coff.max()
 			coff = tensor.exp(coff)
-			coff = cof / coff.sum()
+			coff = coff / coff.sum()
 			coff = coff * tmp_mask
 			coff_array.append(coff)
 		coff = tensor.concatenate(coff_array, axis = 0)

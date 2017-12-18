@@ -70,7 +70,9 @@ class DataCollection(object):
 			return
 		self.load_vocab()
 		self.inited = False
+		self.inited_mono = False
 		self.peeked_batch = None
+		self.peeked_batch_mono = None
 		self.batch_id = 0
 		self.next_offset = 0
 		self.valid_result = {}
@@ -125,8 +127,8 @@ class DataCollection(object):
 
 			:returns: x, y are 2-D numpy arrays, each row contains an indexed source/target sentence
 		'''
-		if not self.inited or self.batch_id == self.config['sort_batches']:
-			self.batch_id = 0
+		if not self.inited_mono or self.batch_id_mono == self.config['sort_batches']:
+			self.batch_id_mono = 0
 			self.inited = True
 			startid_src = self.next_offset_source
 			startid_trg = self.next_offset_target
@@ -136,24 +138,24 @@ class DataCollection(object):
 			cx = []
 			cy = []
 			while endid_src >= self.num_sentences_mono_source:
-				cx += self.source[startid : self.num_sentences_mono_source]
-				endid_src -= self.num_sentences_mono_source
+				cx += self.source_mono[startid : self.num_sentences_mono_source]
+				endid_src -= self.num_mono_sentences_mono_source
 				startid_src = 0
 			self.next_offset_source = endid_src
 			while endid_trg >= self.num_sentences_mono_target:
-				cx += self.target[startid : self.num_sentences_mono_target]
+				cy += self.target_mono[startid : self.num_sentences_mono_target]
 				endid_trg -= self.num_sentences_mono_target
 				startid_trg = 0
 			self.next_offset_target = endid_trg
 			if startid_src < endid_src:
-				cx += self.source[startid_src : endid_src]
+				cx += self.source_mono[startid_src : endid_src]
 			if startid_trg < endid_trg:
-				cy += self.target[startid_trg : endid_trg]
-			self.peeked_batch = [[x, y] for x, y in zip(cx, cy)]
-			self.peeked_batch = sorted(self.peeked_batch, key = lambda x : max(len(x[0]), len(x[1])))
-		x = numpy.asarray(numpy.asarray(self.peeked_batch[self.batch_id * self.config['batchsize'] : (self.batch_id + 1) * self.config['batchsize']])[:, 0])
-		y = numpy.asarray(numpy.asarray(self.peeked_batch[self.batch_id * self.config['batchsize'] : (self.batch_id + 1) * self.config['batchsize']])[:, 1])
-		self.batch_id += 1
+				cy += self.target_mono[startid_trg : endid_trg]
+			self.peeked_batch_mono = [[x, y] for x, y in zip(cx, cy)]
+			self.peeked_batch_mono = sorted(self.peeked_batch_mono, key = lambda x : max(len(x[0]), len(x[1])))
+		x = numpy.asarray(numpy.asarray(self.peeked_batch_mono[self.batch_id_mono * self.config['batchsize'] : (self.batch_id_mono + 1) * self.config['batchsize']])[:, 0])
+		y = numpy.asarray(numpy.asarray(self.peeked_batch_mono[self.batch_id_mono * self.config['batchsize'] : (self.batch_id_mono + 1) * self.config['batchsize']])[:, 1])
+		self.batch_id_mono += 1
 
 		return x, y
 
