@@ -5,6 +5,7 @@
 * [License](#license)
 * [Citation](#citation)
 * [Development Team](#development-team)
+* [Contributors](#Contributors)
 * [Contact](#contact)
 
 ## Introduction
@@ -15,10 +16,12 @@ THUMT is an open-source toolkit for neural machine translation developed by [the
 
 
 ## Implementations
-THUMT has currently two main implementations
+THUMT has currently two main implementations:
+
+* [THUMT-TensorFlow](https://github.com/thumt/THUMT): a new implementation developed with [TensorFlow](https://github.com/tensorflow/tensorflow). It implements the sequence-to-sequence model (**Seq2Seq**) ([Sutskever et al., 2014](https://papers.nips.cc/paper/5346-sequence-to-sequence-learning-with-neural-networks.pdf)), the standard attention-based model (**RNNSearch**) ([Bahdanau et al., 2014](https://arxiv.org/pdf/1409.0473.pdf)), and the Transformer model (**Transformer**) ([Vaswani et al., 2017](https://arxiv.org/abs/1706.03762)).
 
 * [THUMT-Theano](https://github.com/thumt/THUMT/tree/theano): the original project developed with [Theano](https://github.com/Theano/Theano), which is no longer updated because MLA put an end to [Theano](https://github.com/Theano/Theano). It implements the standard attention-based model (**RNNSearch**) ([Bahdanau et al., 2014](https://arxiv.org/pdf/1409.0473.pdf)), minimum risk training (**MRT**) ([Shen et al., 2016](http://nlp.csai.tsinghua.edu.cn/~ly/papers/acl2016_mrt.pdf)) for optimizing model parameters with respect to evaluation metrics, semi-supervised training (**SST**) ([Cheng et al., 2016](http://nlp.csai.tsinghua.edu.cn/~ly/papers/acl2016_semi.pdf)) for exploiting monolingual corpora to learn bi-directional translation models, and layer-wise relevance propagation (**LRP**) ([Ding et al., 2017](http://nlp.csai.tsinghua.edu.cn/~ly/papers/acl2017_dyz.pdf)) for visualizing and anlayzing RNNSearch.
-* [THUMT-TensorFlow](https://github.com/thumt/THUMT): a new implementation developed with [TensorFlow](https://github.com/tensorflow/tensorflow). It implements the sequence-to-sequence model (**Seq2Seq**) ([Sutskever et al., 2014](https://papers.nips.cc/paper/5346-sequence-to-sequence-learning-with-neural-networks.pdf)), the standard attention-based model (**RNNSearch**) ([Bahdanau et al., 2014](https://arxiv.org/pdf/1409.0473.pdf)), and the Transformer model (**Transformer**) ([Vaswani et al., 2017](https://arxiv.org/abs/1706.03762)).
+
 
 The following table summarizes the features of two implementations:
 
