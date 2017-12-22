@@ -1,0 +1,498 @@
+\documentclass{article}
+\usepackage{xeCJK}
+\usepackage{xunicode,xltxtra}
+\usepackage{everb}
+\usepackage{verbatim}
+\usepackage{natbib}
+\usepackage[colorlinks, linkcolor=red, anchorcolor=purple,citecolor=blue]{hyperref}
+
+% \cite{Liu:05} => Liu et al. (2005)
+% \citep{Liu:05} => (Liu et al., 2005)
+
+\everbsetup{bgcolor={[rgb]{0.92,0.92,1.00}}}
+
+\def\argmax{\mathop{\rm argmax}}%
+\def\argmin{\mathop{\rm argmin}}%
+\def\max{\mathop{\rm max}}%
+\renewcommand\refname{参考文献}
+
+\title{THUMT: 开源神经机器翻译工具包}
+\author{清华大学自然语言处理与人文计算实验室}
+\date{2017年12月}
+
+\begin{document}
+\maketitle
+
+\section{简介}
+机器翻译（Machine Translation，MT）是使用计算机来自动进行人类语言翻译，它是自然语言处理以及人工智能的一个重要任务。自1990年以来，随着平行语料的增长，数据驱动的机器翻译方法变得流行起来。近年来，端到端的神经机器翻译（Neural Machine Translation，NMT）\citep{Sutskever:14,Bahdanau:15}进展迅速。由于NMT能够从数据中学习到特征表示，NMT迅速地取代了传统的统计机器翻译方法（Statistical Machine Translation，SMT）\citep{Brown:93,Koehn:03,Chiang:05}，成为了实用MT系统中新的事实上的标准 \citep{Wu:16}。
+
+基于\href{http://deeplearning.net/software/theano/)}{TensorFlow}, THUMT是一套开源的神经机器翻译工具包，由\href{http://nlp.csai.tsinghua.edu.cn/site2/index.php?lang=zh}{清华大学自然语言处理与人文实验室开发}。THUMT具有以下特性:
+
+\begin{enumerate}
+\item {\em 多神经机器翻译架构}。THUMT实现了传统的序列到序列架构\citep{Sutskever:14}，标准的基于注意力机制的编码器-解码器架构\citep{Bahdanau:15}以及基于自注意力机制的Transfromer架构\citep{vaswani2017attention}。
+\item {\em 最小错误率训练}。除了标准的最大似然估计（Maximum Likelihood Estimation，MLE）, THUMT也支持最小错误率训练（Minimum Risk Training，MRT）\citep{Shen:16}。最小错误率训练旨在寻找能够最小化错误期望的参数，而错误期望通过BLEU\citep{Papineni:02}等评测目标在训练集上计算。
+ \end{enumerate}
+
+\section{安装}
+
+\subsection{系统要求}
+THUMT支持Linux i686以及MacOS X。必须安装以下第三方软件以支持THUMT：
+\begin{enumerate}
+\item Python版本2.7.0或以上。
+\item JRE 1.6或以上(可选，仅当可视化时需要)。
+\end{enumerate}
+
+\subsection{安装前提}
+我们推荐使用pip来安装THUMT的依赖。安装从python-pip开始：
+
+\begin{everbatim}
+apt-get install python-pip
+\end{everbatim}
+
+然后，使用以下两个命令来安装argparse以及TensorFlow（要求版本>=1.4.0）：
+
+\begin{everbatim}
+pip install argparse
+pip install tensorflow-gpu
+\end{everbatim}
+
+\subsection{安装THUMT}
+
+THUMT的源代码可以从\href{http://thumt.thunlp.org}{工具网站}(稳定版本)以及GitHub(最新版本)中获得。以下是安装THUMT的简单指南。
+
+\subsubsection{第一步: 解压}
+使用以下命令进行解压：
+
+\begin{everbatim}
+tar xvfz THUMT.tar.gz
+\end{everbatim}
+
+进入\verb|THUMT|目录，可以找到两个子目录(\verb|thumt|, 和\verb|data|)以及三个文件(\verb|LICENSE|，\verb|UserManual.en.pdf|和\verb|UserManual.zh.pdf|):
+\begin{enumerate}
+\item \verb|thumt|: 源代码。
+\item \verb|data|: 训练、验证以及测试集的玩具样例。
+\item \verb|docs|: 文档源文件。
+\item \verb|LICENSE|: 许可文件。
+\item \verb|UserManual.en.pdf|：英文文档。
+\item \verb|UserManual.zh.pdf|: 本文档。
+\end{enumerate}
+
+
+\subsubsection{第二步：更改环境变量}
+
+我们极力推荐在GPU服务器上运行THUMT。假定THUMT在NVIDIA GPUs运行并且安装了\href{https://developer.nvidia.com/cuda-toolkit}{CUDA工具包}版本8.0，用户需要设置以下环境变量来使用THUMT以及GPU：
+\begin{everbatim}
+export PATH=/usr/local/cuda/bin:$PATH
+export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+export PYTHONPATH=/PATH/TO/THUMT:$PYTHONPATH
+\end{everbatim}
+
+若希望永久设置这些环境变量，用户可以将以上几行添加到\verb|$HOME|目录的\verb|.bashrc|文件中。其中\verb|/PATH/TO/THUMT|是THUMT所在目录。
+
+\section{使用手册}
+
+\subsection{数据准备}
+
+运行THUMT会涉及到三种数据集：
+\begin{enumerate}
+\item {\em 训练集}: 用于训练NMT的平行句对集合。
+\item {\em 验证集}: 由源端句子以及多个目标端翻译组成的数据集合，用于模型选择以及超参调节。
+\item {\em 测试集}: 由源端句子以及多个目标端翻译组成的数据集合，用于测试模型在未知数据上的表现。
+\end{enumerate}
+
+\subsubsection{训练集}
+
+训练集的作用是来训练NMT模型。它一般由两个文件组成：一个保存源端句子而另一个保存对应的目标端句子。在\verb|data|目录下，又一个名为\verb|train.src|的例示文件，它包含以下7句话：
+\begin{everbatim}
+我 很 喜欢 音乐 。
+
+我 不 喜欢 画画 。
+
+你 喜欢 音乐 么 ？
+
+是的 ， 我 也 喜欢 音乐 。
+
+他 也 喜欢 音乐 。
+
+她 一点 都 不 喜欢 音乐 。
+
+她 很 喜欢 画画 。
+
+\end{everbatim}
+
+如下所示是对应的目标文件\verb|train.trg|的内容：
+\begin{everbatim}
+i like music very much .
+i do not like painting .
+do you like music ?
+yes , i like music too .
+he also likes music .
+she does not like music at all .
+she likes painting very much .
+\end{everbatim}
+
+注意源端和目标端文件中的每一行之包含一句分词或token后的句子。相同行号的源句子和目标句子互为翻译。
+
+我们的玩具训练集只包含7个句子。在实践中，NMT通常需要数百万的平行句对才能获得较好的翻译结果。
+
+\subsubsection{验证集}
+
+验证集用来模型选择以及超参调整。在训练过程中，THUMT每隔一段时间在验证集上进行模型验证。在验证集上获得最高BLEU的模型将会被保存起来。
+
+验证集包含一个源文件以及一个或多个目标文件。在\verb|data|目录下有一个例示源文件\verb|valid.src|，内容如下：
+
+\begin{everbatim}
+我 很 喜欢 画画 。
+
+我 不 喜欢 音乐 。
+
+\end{everbatim}
+
+我们的例示验证集之包含一个目标文件\verb|valid.trg|，它包含文件\verb|valid.src|的翻译：
+\begin{everbatim}
+i like painting very much .
+i do not like music .
+\end{everbatim}
+
+由于自然语言表达非常丰富，一个源端句子一般对应多个参考译文。THUMT也支持使用多个参考译文。
+
+\subsubsection{测试集}
+测试集用来评估训练好的NMT模型在未见数据上的表现。与验证集类似，测试集也包好一个源文件一个一个或多个目标文件。
+
+在\verb|data|目录下，有一个源测试文件\verb|test.src|:
+\begin{everbatim}
+她 喜欢 画画 么 ？
+
+他 一点 都 不 喜欢 画画 。
+
+\end{everbatim}
+
+对应的目标文件\verb|test.trg|内容如下：
+\begin{everbatim}
+does she like painting ?
+he does not like painting at all .
+\end{everbatim}
+
+在我们的例子中，验证集和测试集只包含两个句子。在时间中，验证集和测试集通常包含数千个句子。
+
+\subsection{训练}
+
+\subsection{数据处理}
+为了解决NMT所存在的词表限制问题，最常用的方式是使用Byte Pair Encoding (BPE)方法。BPE的源代码可以在\href{https://github.com/rsennrich/subword-nmt}{Subword-NMT}中找到。
+
+为了使用BPE来编码训练集，首先需要生成BPE操作文件。以下命令将会生成一个名为\verb|bpe32k|的文件，它包含32K个BPE操作。该命令同时生成两个名为\verb|vocab.src|和\verb|vocab.trg|的文件。
+\begin{everbatim}
+python subword-nmt/learn_joint_bpe_and_vocab.py 
+  --input train.src train.trg -s 32000 -o bpe32k 
+  --write-vocabulary vocab.src vocab.trg
+\end{everbatim}
+
+在生成BPE操作文件以及词表以后，需要对训练集、验证集以及测试集源端进行编码：
+\begin{everbatim}
+  python subword-nmt/apply_bpe.py 
+    --vocabulary vocab.src 
+    --vocabulary-threshold 50 
+    -c bpe32k < train.src > train.32k.src
+  python subword-nmt/apply_bpe.py
+    --vocabulary vocab.trg 
+    --vocabulary-threshold 50
+    -c bpe32k < train.trg > train.32k.trg
+  python subword-nmt/apply_bpe.py
+    --vocabulary vocab.src
+    --vocabulary-threshold 50
+    -c bpe32k < valid.src > valid.32k.src
+  python subword-nmt/apply_bpe.py 
+    --vocabulary vocab.trg --vocabulary-threshold 50 
+    -c bpe32k < valid.trg > valid.32k.trg
+  python subword-nmt/apply_bpe.py
+    --vocabulary vocab.src 
+    --vocabulary-threshold 50 
+    -c bpe32k < test.src > test.32k.src
+\end{everbatim}
+
+以下命令可以将BPE编码后的文件进行还原：
+\begin{everbatim}
+sed -r 's/(@@ )|(@@ ?$)//g' < input > output
+\end{everbatim}
+
+
+\subsection{数据随机化}
+将训练数据随机打乱顺序对训练模型很有帮助。为此我们提供了\verb|shuffle_corpus.py|脚本对数据进行打乱，它具有以下参数：
+\begin{everbatim}
+usage: shuffle_corpus.py [-h] --corpus CORPUS [CORPUS ...] 
+                         [--suffix SUFFIX]
+                         [--seed SEED]
+
+Shuffle corpus
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --corpus CORPUS [CORPUS ...]
+                        input corpora
+  --suffix SUFFIX       Suffix of output files
+  --seed SEED           Random seed
+\end{everbatim}
+
+各个参数的含义如下：
+\begin{enumerate}
+\item \verb|corpus|：源端以及目标端语料库。
+\item \verb|--suffix|：输出文件的后缀，默认\verb|.shuf|。
+\item \verb|--seed|：随机数种子。
+\item \verb|--help|：显示帮助信息。
+\end{enumerate}
+
+
+\subsubsection{词表生成}
+在训练之前，首先要根据语料库构建词表。\verb|scripts|下的\verb|build_vocab.py|可以完成这个功能。它具有以下参数：
+\begin{everbatim}
+usage: build_vocab.py [-h] [--limit LIMIT] [--control CONTROL]
+                      corpus output
+
+Create vocabulary
+
+positional arguments:
+  corpus             input corpus
+  output             Output vocabulary name
+
+optional arguments:
+  -h, --help         show this help message and exit
+  --limit LIMIT      Vocabulary size
+  --control CONTROL  Add control symbols to vocabulary.
+                     Control symbols are separated by comma.
+\end{everbatim}
+
+各个参数的含义如下：
+\begin{enumerate}
+\item \verb|corpus|：源端或目标端语料库。
+\item \verb|--references|：输出词表名。
+\item \verb|--limit|：词表限制大小。若不提供则使用语料库中所有出现的词。
+\item \verb|--control|：控制字符，以逗号隔开如``\verb|<pad>,<eos>,<unk>|''，控制字符将添加到词表的最前端。
+\item \verb|--help|：显示帮助信息。
+\end{enumerate}
+
+\subsubsection{训练所使用的Python脚本}
+THUMT实现了传统的序列到序列架构Seq2Seq\citep{Sutskever:14}，标准的基于注意力机制的编码器-解码器架构RNNsearch\citep{Bahdanau:15}以及基于自注意力机制的Transfromer架构\citep{vaswani2017attention}。
+
+\verb|bin|目录下的\verb|trainer.py|脚本用于训练NMT模型。它有以下参数：
+\begin{everbatim}
+usage: trainer.py [<args>] [-h | --help]
+
+Training neural machine translation models
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --input INPUT INPUT   Path of source and target corpus
+  --output OUTPUT       Path to saved models
+  --vocabulary VOCABULARY VOCABULARY
+                        Path of source and target vocabulary
+  --validation VALIDATION
+                        Path of validation file
+  --references REFERENCES [REFERENCES ...]
+                        Path of reference files
+  --model MODEL         Name of the model
+  --parameters PARAMETERS
+                        Additional hyper parameters
+\end{everbatim}
+
+我们区分\textit{必须}参数以及\textit{可选}参数。用户必须指定以下的参数来运行训练脚本\verb|trainer.py|：
+\begin{enumerate}
+\item \verb|--model|：所选择的架构，目前支持三种架构。可选择的值为\verb|seq2seq|，\verb|rnnsearch|以及\verb|transformer|。
+\item \verb|--input|：首次运行时需要指定，表示源端与目标端训练文件。
+\item \verb|--vocabulary|：首次运行时需要指定，表示源端与目标端词表所在路径。
+\end{enumerate}
+
+\verb|trainer.py|脚本中的可选参数可以在命令中忽略，此时将使用默认参数。可选的参数如下：
+\begin{enumerate}
+\item \verb|--output|：输出模型所在目录，默认为\verb|train|目录。
+\item \verb|--validation|：验证集源端文件所在路径。验证最优模型存储在输出目录的\verb|eval|子目录中。
+\item \verb|--references|：验证集参考译文所在路径。支持多个参考译文。
+\item \verb|--parameters|：指定其他可选参数，这些参数在下一小节中描述。可选参数按照\verb|name=value|的方式给出，并且多个参数间用逗号进行分隔。具体可以参考\verb|tf.contrib.training.parse_values|的文档。
+\item \verb|--help|：显示帮助信息。
+\end{enumerate}
+
+
+\subsection{通用参数}
+\begin{enumerate}
+\item \verb|num_threads|: 数据处理时使用的线程数目。
+\item \verb|buffer_size|: 数据处理时的缓冲大小。
+\item \verb|batch_size|: 训练时批量的大小。
+\item \verb|constant_batch_size|: 是否采用固定的批量大小。如果为True，则输入数据包含\verb|batch_size|个数个句子。若为False，则输入数据中大致含有\verb|batch_size|个词。
+\item \verb|max_length|: 限制训练数据中句子的最大长度。
+\item \verb|train_steps|: 训练的总步数。
+\item \verb|save_checkpoint_steps|: 按步设置保存频率，与\verb|save_checkpoint_secs|互斥。
+\item \verb|save_checkpoint_secs|: 按秒设置保存频率，与\verb|save_checkpoint_steps|互斥。
+\item \verb|initializer|: 使用不同的初始化函数。可选值为\verb|uniform_unit_scaling|,\\ \verb|uniform|，\verb|normal|以及\verb|normal_unit_scaling|。
+\item \verb|initializer_gain|: 设置初始化的范围。不同的输出化函数会产生不同的作用。
+\item \verb|learning_rate|: 设置初始学习率。
+\item \verb|learning_rate_decay|: 设置学习率衰减函数。可选值为\verb|noam|(Transformer架构的学习率衰减方法)、\verb|piecewise_constant|(按照区间进行衰减)以及\verb|none|（不使用衰减）。
+\item \verb|learning_rate_boundaries|: 参考\verb|tf.train.piecewise_constant|。设置学习率减小的边界。
+\item \verb|learning_rate_values|: 参考\verb|tf.trian.piecewise_constant|。设置不同区间学习率的值。
+\item \verb|keep_checkpoint_max|: 最大保留的模型存储的个数。
+\item \verb|keep_top_checkpoint_max|: 保留最好模型的个数。
+\item \verb|eval_steps|: 每隔\verb|eval_steps|步验证一次模型。与\verb|eval_secs|互斥。
+\item \verb|eval_secs|: 每隔\verb|eval_secs|秒验证一次模型。与\verb|eval_steps|互斥。
+\item \verb|eval_batch_size|: 验证时采用的句子批量大小。
+\item \verb|decode_alpha|: 解码时长度惩罚，见\citep{Wu:16}中的解码公式。
+\item \verb|beam_size|: Beam Search时的Beam大小。
+\item \verb|decode_length|: 通过源端长度加\verb|decode_length|计算解码句子最大的长度。
+\item \verb|decode_constant|: 解码时长度惩罚中的常量，见\citep{Wu:16}中的解码公式。
+\item \verb|device_list|: 使用GPU的编号，支持多GPU并行计算。例如，可以使用\verb|device_list=[0,1]|选择使用第0和1号GPU。此时每个GPU会并行处理\verb|batch_size|的数据。
+\end{enumerate}
+
+\subsection{Seq2Seq参数}
+\begin{enumerate}
+\item \verb|rnn_cell|: 使用的RNN单元。目前仅支持LSTM。
+\item \verb|embedding_size|: 词向量大小。
+\item \verb|hidden_size|: RNN隐层大小。
+\item \verb|num_hidden_layers|: RNN层数。
+\item \verb|dropout|: Dropout大小。
+\item \verb|label_smoothing|: 标签平滑大小。
+\item \verb|reverse_source|: 是否将源端句子反转，见\citep{Sutskever:14}。
+\item \verb|use_residual|: 多层RNN时是否使用残差连接。
+\end{enumerate}
+\subsection{RNNsearch参数}
+\begin{enumerate}
+\item \verb|rnn_cell|: 使用的RNN单元。目前仅支持GRU。
+\item \verb|embedding_size|: 词向量大小。
+\item \verb|hidden_size|: RNN隐层大小。
+\item \verb|maxnum|: Maxout层的参数。
+\item \verb|dropout|: Dropout大小。
+\item \verb|label_smoothing|: 标签平滑大小。
+\end{enumerate}
+\subsection{Transformer参数}
+\begin{enumerate}
+\item \verb|hidden_size|: 网络中词向量以及每层输出的大小。
+\item \verb|filter_size|: 前馈层隐层的大小。
+\item \verb|num_encoder_layers|: 编码器层数。
+\item \verb|num_decoder_layers|: 解码器层数。
+\item \verb|num_heads|: Multi-head注意力机制中head数目。
+\item \verb|shared_embedding_and_softmax_weights|: 共享Softmax层以及目标端词向量的参数。
+\item \verb|shared_source_target_embedding|: 共享源端与目标端词向量参数。
+\item \verb|residual_dropout|: 残差连接的Dropout大小。
+\item \verb|attention_dropout|: 注意力机制中Dropout大小。
+\item\verb|relu_dropout|: 前馈层中隐层Dropout大小。
+\item \verb|label_smoothing|: 标签平滑大小。
+\end{enumerate}
+
+
+\subsection{测试}
+\subsubsection{测试使用的Python脚本}
+\verb|bin|目录下的\verb|translator.py|脚本用来翻译测试集中的句子。它有以下的参数可以指定：
+
+\begin{everbatim}
+usage: translator.py [<args>] [-h | --help]
+
+Translate using existing NMT models
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --input INPUT         Path of input file
+  --output OUTPUT       Path of output file
+  --checkpoints CHECKPOINTS [CHECKPOINTS ...]
+                        Path of trained models
+  --vocabulary VOCABULARY VOCABULARY
+                        Path of source and target vocabulary
+  --models MODELS [MODELS ...]
+                        Name of the model
+  --parameters PARAMETERS
+                        Additional hyper parameters
+\end{everbatim}
+
+用户必须指定以下的参数才可以运行\verb|translator.py|
+
+\begin{enumerate}
+\item \verb|--input|：需要进行翻译的文件。
+\item \verb|--output|：输出的文件名。
+\item \verb|--checkpoints|：训练好的模型所在的目录，支持多个模型集成。
+\item \verb|--vocabulary|：源端与目标端的词表位置。
+\item \verb|--models|：所使用的架构名称，支持不同架构之间的集成。
+\end{enumerate}
+
+\verb|translator.py|的可选参数如下：
+\begin{enumerate}
+\item \verb|--parameters|：调整解码中的其他参数。比如\verb|beam_size|以及GPU编号等。
+\item \verb|--help|：显示帮助信息。
+\end{enumerate}
+
+\subsubsection{解码}
+\verb|data|目录下的源端测试文件\verb|test.src|内容如下：
+\begin{everbatim}
+她 喜欢 画画 么 ？
+
+他 一点 都 不 喜欢 画画 。
+
+\end{everbatim}
+
+给定一个训练好的模型目录\verb|train|，可以使用以下的命令来进行翻译：
+
+\begin{everbatim}
+python /PATH/TO/THUMT/thumt/bin/translator.py
+  --models transformer
+  --input test.src
+  --output test.trans
+  --checkpoints train
+  --vocabulary vocab.zh vocab.en
+  --parameters=device_list=[0]
+\end{everbatim}
+注意\verb|test.trans|是THUMT输出的翻译结果。
+
+
+\subsection{模型平均}
+模型平均也成为存储点集成(checkpoint ensemble)，用于平均一次训练中存储的多个模型的参数。我们提供\verb|checkpint_averaging.py|脚本来完成这个步骤，它具有以下的参数：
+\begin{everbatim}
+usage: average.py [<args>] [-h | --help]
+
+Average checkpoints
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --path PATH           checkpoint dir
+  --checkpoints CHECKPOINTS
+                        number of checkpoints to use
+  --output OUTPUT       output path
+\end{everbatim}
+
+各个参数的含义如下：
+\begin{enumerate}
+\item \verb|path|：存储点所在的目录。通常是训练时指定的目录。
+\item \verb|--checkpoints|：需要平均的存储点数目。脚本将自动读取最近的\verb|N|个模型进行平均。
+\item \verb|--output|：输出的目录。在解码时指定该目录即可使用平均后的模型。
+\item \verb|--help|：显示帮助信息。
+\end{enumerate}
+
+
+\subsection{运行例示}
+以下是训练Transformer模型的命令。该模型共享源端、目标端以及softmax参数，使用4块GPU进行训练：
+\begin{everbatim}
+python /PATH/TO/THUMT/thumt/bin/trainer.py 
+  --input train.tok.clean.bpe.32000.en.shuf 
+          train.tok.clean.bpe.32000.de.shuf 
+  --model transformer --output train/ 
+  --vocabulary vocab.bpe.32000 vocab.bpe.32000 
+  --validation newstest2013.tok.bpe.32000.en 
+  --references newstest2013.tok.bpe.32000.de 
+  --parameters=batch_size=6250,device_list=[0,1,2,3],
+               eval_steps=5000,train_steps=100000,
+               save_checkpoint_steps=1500,
+               shared_embedding_and_softmax_weights=true,
+               shared_source_target_embedding=true
+\end{everbatim}
+训练完成以后，使用以下命令进行模型平均：
+\begin{everbatim}
+python /PATH/TO/THUMT/thumt/scripts/checkpoint_averaging.py
+  --path train --checkpoints 5 --output average
+\end{everbatim}
+以下是解码Transformer模型的命令：
+\begin{everbatim}
+python /PATH/TO/THUMT/thumt/bin/translator.py 
+  --model transformer 
+  --checkpoints average 
+  --input newstest2014.tok.bpe.32000.en 
+  --vocabulary vocab.bpe.32000 vocab.bpe.32000 
+  --output output.txt 
+\end{everbatim}
+
+\bibliographystyle{apalike}
+\bibliography{thumt}
+
+\end{document}

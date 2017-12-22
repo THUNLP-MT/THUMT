@@ -1,0 +1,2000 @@
+%& -no-cctspace
+%
+% $Id: everb.sty,v 1.105 2006/01/08 10:41:05 zlb Exp $
+%
+% everb.sty provides a few commands for typesetting verbatim listings.
+%
+%  . \everbinput[params]{filename} produces verbatim listing of the file 
+%    'filename' (the name of the file can contain any characters between
+%    32-127, except '{' and '}'). The optional argument is a list of comma
+%    separated parameters in the form `key=value' (which are parsed using
+%    the `keyval' package).
+%
+%  . The \begin{everbatim}[params] ... \end{everbatim} environment
+%    is similar to the \everbinput command, but is used for inline listings.
+%
+%  . The \everb command can be regarded as a short form of the everbatim*
+%    environment though they are implemented differently and generate
+%    incompatible output. Its syntax is like the LaTeX's \verb command.
+%
+%  . The *-forms of the above commands and environment are similar to the
+%    standard verbatim commands and environments, i.e., they produce
+%    'visible spaces' in the verbatim environment.
+%
+%  . The 'colorboxed' environment produces a box with background and border
+%    which can break across pages. 
+%
+%  . The '\colorovalbox' command produces an ovalbox with background color.
+%    It requires the 'corners' font. Its syntax is similar to the \fcolorbox
+%    command from the 'color' package, and an additional variable, \fboxradius,
+%    is used to control the radius of the corners (see below). If the radius
+%    specified by \fboxradius is too large with respect to the size of the box,
+%    it is automatically adjusted to half of the box size (width or height,
+%    whatever is smaller), the *-form of the command disables adjusting the
+%    radius.
+%
+%  . The internal command \everbatim@ is used to define new verbatim
+%    environments based on the everbatim environment. For example,
+%
+%	\renewenvironment{verbatim}{\everbatim@{verbatim}}{}
+%
+%    redefines the `verbatim' environment.
+%
+%    An user command, \newverbatim is provided for defining new verbatim
+%    environments with its own keyvalues, e.g.:
+%
+%	\newverbatim[box=true,bgcolor=[gray]{0.8},number=true]{myverbatim}
+%	\begin{myverbatim}
+%	... ...
+%	\end{myverbatim}
+%
+%  . The TeX primitives \leftskip and \rightskip can be used to control
+%    margins at the left and right side.
+%
+%  . All command/enviroments can optionally produce a framebox and fill the
+%    box with a background color. The thickness of the frame, the spacing
+%    between the frame and the contents are controlled by \fboxrule and
+%    \fboxsep, respectively, just like \fbox and \fcolorbox commands.
+%    An additional variable, \fboxradius, is used to control the radius
+%    of the corners. 
+%
+%    Note: a special convention is made for the case \fboxradius <= 100sp,
+%    in which \fboxsep is interpreted as a percent value instead of a length.
+%    For example, \fboxradius=25sp means to set the radius of the corners
+%    to 25% \times \min(width, height)
+%    
+% See testeverb.tex for examples
+%
+%  Parameters:
+%
+%    width=<dimen>		Width of the box. Default: \hsize
+%    bg=true|false		Whether use background color. Default: true
+%    bgcolor=<color>		Background color. Default: white
+%    fgcolor=<color>		Foreground color. Default: black
+%    box=true|false|[lrtb]*	Whether draw the frame. A string containing the
+%				characters `l' (left), `r' (right), `t' (top),
+%				and `b' (bottom) may be used to control
+%				individual rules, e.g., `box=tb' will only
+%				draw top and bottom rules.
+%				Default: `lrtb'
+%    boxcolor=<color>		Frame color. Default: black
+%    oval=true|false|[abcd]*	Whether draw round corners. A string containing
+%				the characters `a' (top-left), `b' (top-right),
+%				`c' (bottom-left), and `d' (bottom-right)
+%				may be used to control individual corners,
+%				e.g., `oval=ab' will make the two top
+%				corners round. Default: `false'
+%    number=true|false		Whether put line numbers. Default: true
+%    firstnumber=auto|last|<number> Numbering of the first line. Default: auto
+%    nbrsep=<dimen>		Space between the line numbers and the box.
+%				Default: 0.5em
+%    nbrcolor=<color>		Color for the line numbers. Default: black
+%    tab=<number>		Table stops for <tab> expansion. Default: 8
+%    escape=<number>		Escape char (ASCII code). Default: 256 (none)
+%    first=<number>		First line to display. Default: 1
+%    last=<number>		Last line to display. Default: "7FFFFFFF
+%    prologue=<token list>	Token list to insert before the box.
+%				Default: {}
+%    epilogue=<token list>	Token list to insert after the box.
+%				Default: {}
+%    pagebreak=true|false	Whether allow pagebreaks in `everbatim' and
+%				`colorboxed' environments. Default: true
+%    quoteshack=true|false	Whether replace the single quotes ("'" and "`")
+%				with symbols which are more like those on
+%				the keyboards. Default: false
+%    toptitle={[pos]<token list>} Title on the top rule. Default: {}
+%    bottomtitle={[pos]<token list>} Title on the bottom rule. Default: {}
+%    title={[pos]}<token list>}	Title on both the top and the bottom rules.
+%				Default: {}
+%    titlesep=<dimen>		Separation between title and horizontal rule.
+%				Default: .5em
+%    titleskip=<dimen>		Minimun length of the horizontal rule on
+%				both sides of the title. Default: .5em
+%    hscale=<float>		vertical scale factor (\scalebox{hscale})
+%    vscale=<float>		vertical scale factor (\scalebox{}[vscale])
+%
+%  A range of lines to be included (displayed) can be specified through
+%  the 'first' and 'last' keyword. Their value can be either a number
+%  or a macro or a cross reference which expands to a number - this allows
+%  to mark the range with \label's in the input file (or the inline text),
+%  for example:
+%
+%	\begin{everbatim}[first=\ref{start}, last=\ref{end},escape=``,
+%			  firstnumber=auto]
+%	This is line 1
+%	This is line 2 (first line)	`\label{start}`
+%	This is line 3
+%	This is line 4 (last line)	`\label{end}`
+%	This is line 5
+%	\end{everbatim}
+%
+%  Note: 'firstnumber' must be set to 'auto' in the example above otherwise
+%  the result is incorrect.
+%
+%  '<color>' can be either a color name or a color specification as
+%  used in the \color command, like '{[rgb]{1,0,0}}' (note the specification
+%  should be grouped if it contains ',').
+%
+%  The command `\everbsetup' may be used to change the default values
+%  of the above parameters, e.g.:
+%	\everbsetup{box=false, bgcolor={[gray]{0.95}}}
+%
+%  TeX commands can be inserted into the listing via the escape char 
+%  (defined by the 'escape=' keyword): characters between two escape chars
+%  are interpreted as ordinary TeX commands (the \label command can
+%  be used to refer to the current (printed) line number).
+%
+%  Special cares are taken for CCT and CJK to align one Chinese character
+%  with exactly two ASCII chars.
+%
+% TODO:
+%
+%  . Optimization of the processing speed (the code is currently slow)
+%
+%    Note: the slow speed compared to other verbatim packages mainly comes
+%    from:
+%
+%	1. The input stream is parsed character by character, and the
+%          end-of-input string is compared with character by character.
+%	   It seems to be the only method to allow tokens which follow
+%	   the end-of-input string and are on the same line not to be
+%	   discarded.
+%
+%	2. Processing of the color specials.
+%
+%	3. The \everb@typeset@line macro, which is to be optimized.
+%
+%	4. In escape mode (aka TeX mode), characters are converted
+%	   to their usual catcodes and control sequences are reconstructed
+%	   using an explicit loop. This is an interesting scheme and allows
+%	   escape mode to begin and/or end in the middle of a line and to
+%	   across line boundaries, but it leads to further loss of processing
+%	   speed. Another implication (restriction) of this scheme
+%	   is that commands which play with catcodes (e.g., \catcode,
+%	   \makeatletter, etc.) won't work with this method.
+%
+%  . Better (re)organization of the code.
+%
+%  . Fine-tuning spacings, penalties, etc.
+%
+% KNOWN BUGS:
+%
+%  . CJK: only works with 2-byte encodings
+%
+%  . The 'everbatim' environment can't be used in a floating environment
+%    like 'figure'
+%
+% Author: ZLB.
+%
+\ProvidesPackage{everb}
+\def\fileversion{0.2.7}
+\def\filedate{2006/01/08}
+\message{\fileversion \space [\filedate]}
+%
+% Changelog:
+%
+% 2006/01/08
+%	. new key `hscale'
+%
+% 2006/01/07
+%	. new key `vscale'
+%
+% 2006/01/06
+%	. move `\par' before prologue to make line spacing changes local
+%
+% 2005/09/01
+%	. move epilogue before \smallskip to allow 'epilogue={\nobreak}'
+%
+% 2005/08/25
+%	. remove obsolete \everb@corners macro
+%	. move tests on \everb@box and \everb@oval to \colorovalbox such that
+%	  they apply to \colorovalbox
+%	. allow `box=true|false|[lrtb]*', `oval=true|false|[abcd]*'
+%
+% 2005/08/24
+%	. new keys: title, toptitle, bottomtitle, titlesep, titleskip
+%	. fix the underfull warning in `center' environment when \fboxradius>0
+%
+% 2005/08/22
+%	. add \everbposthook
+%
+% 2005/08/19
+%	. call \verbatim@font instead of \ttfamily in \everb@TeXmode@post
+%	. new key 'quoteshack={true|false}' to change default single quotes
+%	. add \everbprehook
+%	. make \everb work with mathmode
+%	. add new key pagebreak={true|false}
+%
+% 2005/07/25
+%	. everbatim: use \everb@@@ to typeset lines in order to get correct
+%	  baseline position (fix extra space at begin of page).
+%
+% 2005/07/17
+%	. colorboxed: adjust width of the boxes after \vsplit, otherwise
+%	  narrower boxes might be produced (e.g., if the box only contains
+%	  display-math).
+%
+% 2005/07/16
+%	. fix issues related to \leftskip, \rightskip and the "width=" key,
+%	  and allow setting \leftskip and \rightskip in prologue
+%
+% 2005/07/15
+%	. fix a PDFLaTeX color problem with everb@boxcolor
+%	. delay html tags following \vskip\z@ by saving them in \everb@boxa
+%	  (otherwise \vskip\z@ can't be removed by \unskip, and the glues
+%	   do not disappear at page breaks)
+%
+% 2005/06/22
+%	. comment out '\renewcommand\baselinestretch{\@ne}' in \everb@pre
+%	  (user can change \baselinestretch in prologue)
+%
+% 2005/06/18
+%	. fix typo: "\ifnum\@tempcntb<33" should be "\ifnum\@tempcnta<33"
+%
+% 2005/05/11
+%	. remove \@noligs in \everb@pre which breaks mathmode (e.g., $t'$)
+%
+% 2005/01/24
+%	. bugfix: fgcolor was only honored in the everbatim environment.
+%
+% 2005/01/22
+%	. changed code for drawing the rules in \color@oval@box@@ such that
+%	  the box frame is on top of the box contents.
+%
+% 2005/01/18
+%	. bugfix: set \fboxradius=\z@ if \everb@ovalfalse in \everb@@@
+%
+% 2004/12/14
+%	. enhancements: \colorovalbox, \newverbatim, new kay oval={true|false},
+%	  and new dimension \fboxradius
+%
+%	. \colorboxed:
+%	  - don't draw border when splitting box
+%	  - output the whole box if inner mode (used in a minipage or box)
+%	  - added \smallskip above and below
+%
+%	. new command '\newverbatim[options]{envname}'
+%
+%	. add 'list' key to control use of \trivlist in 'everbatim'
+%	  (default=false, which is different from previous behaviour!!!)
+%
+%	. change \fboxrule to not overlap with \fboxsep (similar to \fbox)
+%	  in 'everbatim'
+%
+%	. replace the macro \everb@serialno with the counter everb@fileno,
+%	  the latter allows to maintain identical values when using
+%	  \includeonly.
+%
+%	. fixe PDFLaTeX warning "destination with the same identifier" by
+%	  using a fake counter name for the line numbers.
+%
+%	. solve the problem that \ref in the keyvalue does not work
+%	  without hyperref package
+%
+% 2004/11/30
+%	. keep \textwidth unchanged (the output routine depends on it)
+%	  - this fixes the bug with fancyhdr reported by xue_dy.
+%
+% 2004/10/13
+%	. call \CCTspace (\CJKspace) in \everb@CCT@setup (\everb@CJK@setup)
+%	  to fix the bug of lost spaces between GBK chars in the \everb command
+%
+% 2004/09/28
+%	. colorboxed: fixed a bug (look for the string '20040928: ...' below)
+%
+% 2004/08/14
+%	. everbatim:
+%		- fix a bug in adjusting \everb@charcnt when expanding
+%	  	  <tab> by inserting spaces (\iffalse ...)
+%		- replace the \loop with \ifnum's when expanding tabs
+%		  (\loop causes \everbinput to stop right after the first
+%		  line containing tabs)
+%
+% 2004/07/14
+%	. everbatim: avoid to typeset an empty line because of leading
+%	  spaces/tabs which precede \end{everbatim}
+%
+%	. put tokens added before (resp. after) the TeXmode in the macro
+%	  \everb@TeXmode@pre (resp. \everb@TeXmode@post).
+%
+% 2004/07/04
+%	. everbatim/\everbinput:
+%		- refer to correct line number instead of the last line number
+%		  when multiple source lines generate a single output line,
+%		  and display range of line numbers.
+%		- change the name of the counter for line numbering from
+%		  'lstf@ln' to 'everb@lineno'
+%
+% 2004/06/27
+%	. colorboxed:
+%		- insert \nobreak before outputting each box
+%		- set \lineskiplimit to \maxdimen, substract \lineskip from
+%		  remaining height, and remove '\offinterlineskip'
+%		- try to find the best cut point by descreasing the split
+%		  height each time by \@colorboxed@stepsize
+%		- set \vfuzz to \maxdimen to avoid overfull warning
+%
+% 2004/06/17
+%	. colorboxed:
+%		- don't insert \nobreak for the 1st box (steal the boolean
+%		  \ifverb@bol as the flag)
+%		- save the \baselineskip before \offinterlineskip
+%		- use penalty -200 instead of \newpage between boxes
+%		- hacky method to force rejecting current page
+%		  (\vskip 0.25\vsize \penalty -200 \vskip -0.25\vsize)
+%		- use `\vbox{\unvbox ...}' to reset boxes to natural height
+%		  (warning: may leave to an unwanted page break if natural
+%		  height > desired height)
+%
+% 2004/06/16
+%	. colorboxed:
+%		- Add \nobreak before the boxes to prevent line break
+%		- Add \offinterlineskip to remove extra interline space
+%
+% 2004/04/19
+%	. Make colorboxed environment support 'bg=' and 'box=' parameters
+%
+% 2004/04/03
+%	. Use '\verbatim@font ... \let\do\@makeother \dospecials' instead
+%	  of '\make@all@other*' for \everb (otherwise it won't work with CJK)
+%
+% 2004/03/30
+%	. Use '\linewidth' instead of '\hsize' if within a list environment
+%	  (for both 'everbatim' and 'colorboxed' environments).
+%
+%	. Add an extra group for '\setbox' in '\everb@@@', otherwise the color
+%	  change by '\ttfamily' will affect texts afterwards.
+%
+% 2004/03/05
+%	Implemented the 'colorboxed' environment.
+%
+% 2004/01/18:
+%	First release.
+%
+
+\RequirePackage{color}
+\RequirePackage{keyval}
+\RequirePackage{graphicx}
+
+\endlinechar \m@ne
+
+\iffalse
+  \def\everb@debug#1{\PackageInfo{everb}{#1}}
+\else
+  \def\everb@debug#1{\relax}
+\fi
+
+\define@key{everb}{width}{\everb@width=#1\everb@widthtrue}
+\define@key{everb}{escape}{\everb@set@number{\everb@Esc}{#1}{0}}
+\define@key{everb}{fgcolor}{\everb@set@color{fgcolor}{#1}}
+\define@key{everb}{bgcolor}{\everb@set@color{bgcolor}{#1}}
+\define@key{everb}{boxcolor}{\everb@set@color{boxcolor}{#1}}
+\define@key{everb}{nbrcolor}{\everb@set@color{nbrcolor}{#1}}
+\define@key{everb}{tab}{\everb@set@number{\everb@tabsize}{#1}{8}
+  \ifnum\everb@tabsize>16\relax
+    \PackageError{everb}{Invalid tab size: #1, will use 16 instead}
+      {Tab size should be smaller than or equal to 16}
+    \everb@set@number{\everb@tabsize}{16}{8}
+  \fi}
+\define@key{everb}{nbrsep}{\def\everb@nbrsep{#1}}
+\define@key{everb}{bg}
+  {\everb@true@false{bg}{#1}{\everb@bgtrue}{\everb@bgfalse}\relax}
+\define@key{everb}{box}
+  {\everb@true@false{box}{#1}{\everb@box@flags{lrtb}}{\everb@boxfalse}
+    \everb@box@flags}
+\define@key{everb}{oval}
+  {\everb@true@false{oval}{#1}{\everb@oval@flags{abcd}}{\everb@ovalfalse}
+    \everb@oval@flags}
+\define@key{everb}{number}
+  {\everb@true@false{number}{#1}{\everb@nbrtrue}{\everb@nbrfalse}\relax}
+\define@key{everb}{list}
+  {\everb@true@false{list}{#1}{\everb@listtrue}{\everb@listfalse}\relax}
+\define@key{everb}{first}{\everb@set@number{\everb@firstline}{#1}{0}}
+\define@key{everb}{last}{\everb@set@number{\everb@lastline}{#1}{"7FFFFFFF}}
+\define@key{everb}{firstnumber}{\def\everb@firstnumber{#1}}
+\define@key{everb}{prologue}{\def\everb@prologue{#1}}
+\define@key{everb}{epilogue}{\def\everb@epilogue{#1}}
+\define@key{everb}{quoteshack}{\everb@true@false{quoteshack}{#1}
+  {\let\everb@quotes@hack\everb@quotes}{\let\everb@quotes@hack\relax}\relax}
+\define@key{everb}{pagebreak}{\everb@true@false{pagebreak}{#1}
+  {\everb@pagebreaktrue}{\everb@pagebreakfalse}\relax}
+\define@key{everb}{title}{\def\everb@toptitle{#1}\def\everb@bottomtitle{#1}}
+\define@key{everb}{toptitle}{\def\everb@toptitle{#1}}
+\define@key{everb}{bottomtitle}{\def\everb@bottomtitle{#1}}
+\define@key{everb}{titlesep}{\def\everb@titlesep{#1}}
+\define@key{everb}{titleskip}{\def\everb@titleskip{#1}}
+\define@key{everb}{vscale}{\def\everb@vscale{#1}}
+\define@key{everb}{hscale}{\def\everb@hscale{#1}}
+
+\def\everb@toptitle{}
+\def\everb@bottomtitle{}
+\def\everb@titlesep{.5em}
+\def\everb@titleskip{.5em}
+\def\everb@vscale{}
+\def\everb@hscale{}
+
+\newif\ifeverb@box@l \everb@box@ltrue
+\newif\ifeverb@box@r \everb@box@rtrue
+\newif\ifeverb@box@t \everb@box@ttrue
+\newif\ifeverb@box@b \everb@box@btrue
+
+\newif\ifeverb@oval@a \everb@oval@atrue
+\newif\ifeverb@oval@b \everb@oval@btrue
+\newif\ifeverb@oval@c \everb@oval@ctrue
+\newif\ifeverb@oval@d \everb@oval@dtrue
+
+\def\everb@box@flags#1{
+  \everb@boxtrue
+  \everb@box@lfalse \everb@box@rfalse \everb@box@tfalse \everb@box@bfalse
+  \def\everb@temp{box}\def\@tempb{`l', `r', `t', and `b'}
+  \everb@parse@flags #1\@nnil
+}
+\def\everb@oval@flags#1{
+  \everb@ovaltrue
+  \everb@oval@afalse \everb@oval@bfalse \everb@oval@cfalse \everb@oval@dfalse
+  \def\everb@temp{oval}\def\@tempb{`a', `b', `c', and `d'}
+  \everb@parse@flags #1\@nnil
+}
+\def\everb@parse@flags#1{
+  \ifx #1\@nnil
+    \let \everb@next \relax
+  \else
+    \expandafter \let \expandafter
+      \@tempa \csname everb@\everb@temp @#1true\endcsname
+    \ifx \@tempa \relax
+      \PackageError{everb}
+	{Invalid character `#1' in the keyvalue `\everb@temp' ignored}
+	{Valid characters are \@tempb}
+      %\let \everb@next \remove@to@nnil
+      \let \everb@next \everb@parse@flags
+    \else
+      \@tempa
+      \let \everb@next \everb@parse@flags
+    \fi
+  \fi
+  \everb@next
+}
+
+\let\everb@quotes@hack\relax
+% Produces a box of whose size is exactly one character large
+\def\everb@charbox#1{\bgroup\setbox\z@\vbox{\noindent#1}
+  \setbox\@ne\hbox{M}\wd\z@=\wd\@ne\ht\z@=\ht\@ne\dp\z@=\dp\@ne\box\z@\egroup}
+\def\everb@make@quotes@active{\catcode`\'\active \catcode`\`\active}
+\bgroup
+\everb@make@quotes@active % change catcode of ' and ` to \active
+\gdef\everb@quotes{\everb@make@quotes@active
+  %\def`{\char18}
+  \def`{\everb@charbox{\fontsize{1.142857em}\z@\selectfont
+    \normalfont\fontfamily{pcr}\char18}}
+  \def'{\everb@charbox{\char13}}}
+\egroup
+
+\def\everb@TeXmode@pre{\rmfamily \baselineskip 1.143em \lineskip \p@
+      \lineskiplimit \z@ \catcode`\'=12 \catcode`\`=12 }
+\def\everb@TeXmode@post{\verbatim@font\offinterlineskip\everb@quotes@hack}
+
+\def\everb@ref@hack#1#2#3{% #1=value when undefined, #2=\ref, #3=label
+  \expandafter \let \expandafter \everb@temp \csname r@#3\endcsname
+  \ifx \everb@temp \relax
+    \@latex@warning{Reference `\string#2{#3}' on page \thepage\space undefined}
+    \G@refundefinedtrue	% 'There were undefined references.' message.
+    \@tempcnta=#1
+  \else
+    \iftrue
+      \afterassignment \remove@to@nnil
+        % firstoftwo = refno, secondoftwo = pageno
+        \expandafter \@tempcnta \expandafter \@firstoftwo \everb@temp{}{}{}
+      \@nnil
+    \else
+      \@tempcnta=#2{#3}
+    \fi
+  \fi}
+
+\def\everb@set@number#1#2#3{
+  % Define the macro #1 to the number #2, or #3 when #2 refers to an
+  % undefined reference use
+  %
+  % Hack to avoid error message caused by refering to an undefined reference
+  \futurelet \everb@temp \remove@to@nnil #2 \@nnil
+  \ifx\everb@temp\pageref \let\everb@temp\ref \fi
+  \ifx\everb@temp\ref
+    \everb@ref@hack{#3}#2
+  \else
+    \afterassignment \remove@to@nnil \@tempcnta=#2 \@nnil
+  \fi
+  \edef#1{\the\@tempcnta}
+}
+
+%
+% Note: direct colors are transformed to named colors to facilitate
+% further processing.
+%
+\def\everb@set@color#1#2{
+  \futurelet\everb@lbrace\remove@to@nnil [] \@nnil
+  \futurelet\everb@temp\everb@set@color@#2\@end{#1}}
+\def\everb@set@color@#1\@end#2{
+  \ifx\everb@temp\everb@lbrace
+    % undefine color 'everb@#2' to avoid 'redefining color' warning
+    \expandafter\let\csname\string\color @everb@#2\endcsname\relax
+    \everb@definecolor{everb@#2}#1
+    \expandafter\def\csname everb@#2\endcsname{{everb@#2}}
+  \else
+    \expandafter\def\csname everb@#2\endcsname{{#1}}
+  \fi}
+\def\everb@definecolor#1[#2]#3{\definecolor{#1}{#2}{#3}}
+
+\def\everb@true{true}
+\def\everb@false{false}
+\def\everb@true@false#1#2#3#4#5{
+  % #1=key,
+  % #2=value,
+  % #3=macro for `true',
+  % #4=macro for `false',
+  % #5=macro for other values (with the value as its argument,
+  %	\relax if no other values are allowed)
+  \def\everb@temp{#2}
+  \ifx\everb@temp\everb@true
+    #3
+  \else\ifx\everb@temp\everb@false
+    #4
+  \else\ifx #5\relax
+    \PackageError{everb}{Invalid value `#2' for the keyword `#1'}
+      {Only `true' or `false' is allowed}
+  \else
+      #5{#2}
+  \fi\fi\fi
+}
+
+%
+\def\everb@Esc{256}			% escape char (ASCII code)
+\everb@set@color{bgcolor}{[gray]{0.85}}
+\everb@set@color{boxcolor}{black}
+\everb@set@color{nbrcolor}{black}
+\everb@set@color{fgcolor}{black}
+\def\everb@nbrsep{0.5em}		% space following line numbers
+\def\everb@tabsize{8}
+\def\everb@firstline{1}
+\def\everb@lastline{"7FFFFFFF}
+
+% Use the number 2^31-1 for 'auto'
+\def\everb@linenumber@auto{"7FFFFFFF}
+\def\everb@set@linenumber#1{
+  \def\everb@temp{#1}
+  \def\@tempa{auto}
+  \ifx\everb@temp\@tempa
+    \@tempcnta=\everb@linenumber@auto
+  \else
+    \def\@tempa{last}
+    \ifx\everb@temp\@tempa
+      % "last"
+      \@tempcnta=\everb@linenumber \advance\@tempcnta by \@ne
+    \else
+      % number
+      \afterassignment \remove@to@nnil \@tempcnta=#1 \@nnil
+    \fi
+  \fi
+  \edef\everb@linenumber{\the\@tempcnta}
+}
+\def\everb@linenumber{\z@}
+\def\everb@firstnumber{auto}
+
+\def\everb@prologue{}
+\def\everb@epilogue{}
+
+\newif \ifeverb@width	\everb@widthfalse   % whether width set by keys
+\newif \ifeverb@list	\everb@listfalse    % whether use \trivlist (everbatim)
+\newif \ifeverb@bg	\everb@bgtrue	    % background
+\newif \ifeverb@box	\everb@boxtrue	    % box
+\newif \ifeverb@nbr	\everb@nbrtrue	    % line numbers 
+\newif \ifeverb@oval	\everb@ovalfalse    % ovalbox
+
+\newif\ifeverb@TeXmode
+\newif\ifeverb@skip@space
+\newif\ifeverb@inline
+\newif\ifeverb@endinput
+\newif\ifeverb@star		% true ==> put the text in a \vbox
+\newif\ifeverbatim \everbatimfalse
+\newif\ifeverb@pagebreak \everb@pagebreaktrue
+
+\newdimen\everb@width \everb@width=\z@
+\newdimen\everb@dima
+\newcount\everb@charcnt
+\newcount\everb@group@level
+\newtoks\everb@toks
+\newtoks\everb@toks@save
+\newtoks\everb@check@save
+\newbox\everb@boxa
+\newif\ifeverb@firstbox		% whether we are typesetting the first box
+\newif\ifeverb@bol		% used for testing 2 successive newlines
+\newcounter{everb@lineno}	% line number
+\newcounter{everb@fileno}	% file number (serialno of 'everbatim' used
+				% for avoiding duplicate anchors, labels)
+
+\@addtoreset{everb@lineno}{everb@fileno}
+\setcounter{everb@fileno}{0}
+
+{\catcode`\^^20=12\gdef\everb@space{ }}
+
+%
+% \everb@set@end defines \end{xxxx} as the end input mark and the end command
+{\catcode`\{=12 \catcode`\}=12 \catcode`\[=1
+ \catcode`\]=2  \catcode`\|=0  \catcode`\\=12
+ |gdef|everb@set@end#1[|def|everb@inline@endstring[\end{#1}]
+ |def|everb@inline@endcmd[|end[#1]]]]
+ 
+%
+% Note: must change catcodes before testing next char
+% (no need to care about this problem with \everbinput because it
+% must be followed by either '[' or '{')
+\newenvironment{everbatim}{\everbatim@{everbatim}}{}
+\newenvironment{everbatim*}{\everbatim@{everbatim*}*}{}
+\newcommand\everbinput{\everb@inlinefalse\everb@init}
+\newcommand\everbsetup[1]{\setkeys{everb}{#1}\everb@widthfalse}
+
+\def\everbatim@#1{\everb@set@end{#1}\everb@inlinetrue\everb@init}
+
+\def\newverbatim{\@ifnextchar[{\new@verbatim}{\new@verbatim[]}}
+\def\new@verbatim[#1]#2{\@ifundefined{#2}
+  {\newenvironment{#2}{\everb@set@end{#2}\everb@inlinetrue\everb@init[#1]}{}}
+  {\renewenvironment{#2}{\everb@set@end{#2}\everb@inlinetrue\everb@init[#1]}{}}
+}
+
+%
+% Catch \pagecolor
+\let\pagecolor@bak\pagecolor
+\def\pagecolor{\@ifnextchar[{\everb@pagecolor@}{\everb@pagecolor@@}}
+\def\everb@pagecolor@[#1]#2{\everb@pagecolor@@@{[#1]{#2}}}
+\def\everb@pagecolor@@#1{\everb@pagecolor@@@{{#1}}}
+\def\everb@pagecolor@@@#1{\def\everb@pagecolor{#1}\pagecolor@bak#1}
+
+\def\everb@color#1{\expandafter\color#1}
+
+\newif\ifeverb@discard@firstpar
+
+\def\everb@init{\everb@discard@firstpartrue \bgroup
+  % Note: should preserve catcode of '{' for \everbinput, because it
+  % might be followed by '{filename}'
+  \ifeverb@inline \make@all@other*\else \make@all@other \fi
+  \ifnum\everb@Esc<\z@\else\ifnum\everb@Esc<256
+    \catcode\everb@Esc=12 % necessary since \@ifnextchar may run across it
+  \fi\fi
+  \@ifnextchar*{\egroup\everb@startrue\expandafter\everb@init@\@gobble}
+               {\egroup\everb@starfalse\everb@init@}}
+
+\def\everb@init@{\bgroup
+  \ifeverb@inline \make@all@other*\else \make@all@other\fi
+  \ifnum\everb@Esc<\z@\else\ifnum\everb@Esc<256
+    \catcode\everb@Esc=12 % necessary since \@ifnextchar may run across it
+  \fi\fi
+  \everb@init@@}
+
+\def\everb@init@@{
+  % Skip spaces before possible '['
+  \expandafter\@ifnextchar\everb@space
+    {\expandafter\everb@init@@\@gobble}{\everb@init@@@}}
+
+%
+\def\everb@init@@@{
+  \@ifnextchar[{\egroup\everb@init@@@@}
+    % Note: if next char is not, then the next \par should not be discarded
+    % because a \par might have been eaten by \everb@init@@.
+    {\egroup\ifeverb@inline\everb@discard@firstparfalse\fi\everb@init@@@@[]}}
+
+\def\everb@init@@@@[#1]{
+  \ifeverb@inline
+    \def\everb@next{\everb@pre[#1]A}
+  \else
+    \def\everb@next{\make@all@other\everb@pre[#1]}
+  \fi
+  \begingroup\everb@next}
+
+\def\everb{\relax\ifmmode\hbox\else\leavevmode\null\fi
+  \bgroup 
+  \verbatim@font \@noligs \hyphenchar\font\m@ne \let\do\@makeother \dospecials
+  \everbprehook
+  \everb@quotes@hack
+  \@ifnextchar*{\everb@startrue \expandafter \everb@ \@gobble}
+               {\everb@starfalse \everb@}}
+
+% Users can insert commands for each \everb command using \everbprehook
+\def\everbprehook{}
+\def\everbposthook{}
+  
+\def\everb@{\frenchspacing
+  \ifeverb@star \else \obeyspaces \fi \everb@CJK@setup \everb@CCT@setup
+  \parfillskip\@flushglue
+  \everb@@}
+\def\everb@@#1{\def\everb@toptitle{}\def\everb@bottomtitle{}
+  \def\@tempa##1#1{\everb@@@{##1}{\colorovalbox}\everbposthook\egroup}\@tempa}
+\def\everb@@@#1#2{\leavevmode
+  % Note: #2 is the command for typesetting ovalbox, which is either
+  % \colorovalbox or \colorovalbox*
+  \bgroup
+   \everb@color\everb@fgcolor	% foreground color
+   \def\@tempb{#2}% Note: \expandafter#2 may not work (if #2='\colorovalbox*')
+   \expandafter\expandafter\expandafter\@tempb
+     \expandafter\everb@boxcolor\everb@bgcolor{#1}
+  \egroup}
+
+%
+\def\everb@CJK@setup{
+  \ifx\CJK@min\undefined
+    \def\everb@CC@glue{\relax}
+  \else
+    % space to add = (1em - width of Chinese char) / 2
+    {
+      \let\CJKglue\relax
+      \setbox\everb@boxa\hbox{\CJKchar{"B0}{"A1}}
+      \everb@dima=0.5em \advance\everb@dima by -0.5\wd\everb@boxa
+      \xdef\everb@CC@glue{\hskip \the\everb@dima}
+    }
+    \CJKspace
+  \fi
+}
+\def\everb@CCT@setup{
+  \ifx\CCTSetChar\undefined \else
+    % CCT setup
+    \CCTpunctfalse \CCTbreakfalse \CCTspace
+    \if1\csname CCTCJKfonts\endcsname \zihaoAny{1em}\else \zihaoAny{0.88em}\fi
+  \fi}
+
+%
+\def\make@all@other{
+  \@ifnextchar*{\expandafter\make@all@other@\@gobble}{\make@all@other@@}}
+
+\def\make@all@other@{\make@all@other@@@{\m@ne}{\m@ne}}
+\def\make@all@other@@{\make@all@other@@@{123}{125}}
+\def\make@all@other@@@#1#2{\@tempcnta=32 \relax
+  \loop
+    \ifnum\@tempcnta=#1 \relax
+      \catcode\@tempcnta=\@ne \relax
+    \else\ifnum\@tempcnta=#2 \relax
+      \catcode\@tempcnta=\tw@ \relax
+    \else
+      \catcode\@tempcnta=12 \relax
+    \fi\fi
+  \ifnum\@tempcnta<127 \advance \@tempcnta \@ne \repeat}
+
+% convert catcodes of chars in the token list to usual ones,
+% '\xxxx' into control sequences, etc.
+
+\long\def\everb@add@toks#1{
+  \advance\everb@charcnt by \@ne\relax
+  %%%\immediate\write16{** appendding `\string #1', count=\number\everb@charcnt}
+  \everb@toks=\expandafter{\the\everb@toks #1}}
+
+\def\everb@convert#1#2{
+  \ifcase #1\relax
+    % Note: '\' ("5C), '{' ("7B), '}' ("7D), '%' ("25), as well as other
+    % chars with catcode 15 are converted to '0x80' to avoid problems.
+    %
+    % ----- "00-"0F \label{everb.sty:label}
+    #2^^80\or#2^^80\or#2^^80\or#2^^80\or#2^^80\or#2^^80\or#2^^80\or#2^^80\or
+    %#2^^80\or#2^^09\or#2^^0a\or#2^^80\or#2^^80\or#2^^0d\or#2^^0e\or#2^^0f\or
+    #2^^80\or#2^^80\or#2^^80\or#2^^80\or#2^^80\or#2^^80\or#2^^80\or#2^^80\or
+    % ----- "10-"1F
+    #2^^80\or#2^^80\or#2^^80\or#2^^80\or#2^^80\or#2^^80\or#2^^80\or#2^^80\or
+    #2^^80\or#2^^80\or#2^^80\or#2^^80\or#2^^80\or#2^^80\or#2^^80\or#2^^80\or
+    % ----- "20-"2F
+    #2^^20\or#2^^21\or#2^^22\or#2 ## \or#2^^24\or#2^^80\or#2^^26\or#2^^27\or
+    #2^^28\or#2^^29\or#2^^2a\or#2^^2b\or#2^^2c\or#2^^2d\or#2^^2e\or#2^^2f\or
+    % ----- "30-"3F
+    #2^^30\or#2^^31\or#2^^32\or#2^^33\or#2^^34\or#2^^35\or#2^^36\or#2^^37\or
+    #2^^38\or#2^^39\or#2^^3a\or#2^^3b\or#2^^3c\or#2^^3d\or#2^^3e\or#2^^3f\or
+    % ----- "40-"4F
+    #2^^40\or#2^^41\or#2^^42\or#2^^43\or#2^^44\or#2^^45\or#2^^46\or#2^^47\or
+    #2^^48\or#2^^49\or#2^^4a\or#2^^4b\or#2^^4c\or#2^^4d\or#2^^4e\or#2^^4f\or
+    % ----- "50-"5F
+    #2^^50\or#2^^51\or#2^^52\or#2^^53\or#2^^54\or#2^^55\or#2^^56\or#2^^57\or
+    #2^^58\or#2^^59\or#2^^5a\or#2^^5b\or#2^^80\or#2^^5d\or#2^^5e\or#2^^5f\or
+    % ----- "60-"6F
+    #2^^60\or#2^^61\or#2^^62\or#2^^63\or#2^^64\or#2^^65\or#2^^66\or#2^^67\or
+    #2^^68\or#2^^69\or#2^^6a\or#2^^6b\or#2^^6c\or#2^^6d\or#2^^6e\or#2^^6f\or
+    % ----- "70-"7F
+    #2^^70\or#2^^71\or#2^^72\or#2^^73\or#2^^74\or#2^^75\or#2^^76\or#2^^77\or
+    #2^^78\or#2^^79\or#2^^7a\or#2^^80\or#2^^7c\or#2^^80\or#2^^7e\else
+  \fi{}}
+
+\def\everb@close@groups{
+  %
+  % close open groups
+  \ifnum \everb@group@level>\z@
+    \PackageWarning{everb}{TeX mode ended inside a group at level %
+      \number\everb@group@level}
+    % FIXME: why \loop does not work?
+    %%%\loop \everb@close@group \ifnum \everb@group@level>\z@ \repeat
+    \iftrue
+      \everb@close@group
+      \ifnum \everb@group@level=\z@ \else
+	\everb@close@group
+      \ifnum \everb@group@level=\z@ \else
+	\everb@close@group
+      \ifnum \everb@group@level=\z@ \else
+	\everb@close@group
+      \ifnum \everb@group@level=\z@ \else
+	\everb@close@group
+      \ifnum \everb@group@level=\z@ \else
+	\everb@close@group
+      \ifnum \everb@group@level=\z@ \else
+	\everb@close@group
+      \ifnum \everb@group@level=\z@ \else
+	\everb@close@group
+      \ifnum \everb@group@level=\z@ \else
+	\everb@close@group
+      \fi\fi\fi\fi\fi\fi\fi\fi
+    \fi
+  \fi
+}
+
+\def\everb@open@group{
+  \bgroup
+  \global\advance \everb@group@level by \@ne
+  %%%\immediate\write16{enter group level \number\everb@group@level}
+  \global\everb@skip@spacefalse
+  \everb@toks@save=\everb@toks
+  \everb@toks={}
+}
+
+\def\everb@close@group{
+  \xdef\everb@temp{\the\everb@toks@save{\the\everb@toks}}
+  \global\everb@skip@spacefalse
+%%%\immediate\write16{leave group level \number\everb@group@level}
+  \global\advance \everb@group@level by \m@ne
+  \egroup
+  \everb@toks=\expandafter{\everb@temp}
+}
+
+\expandafter \let \expandafter \everb@empty \csname \endcsname
+\def\everb@TeXmode@char#1{
+  %%%\immediate\write16{* convert char `\string #1' in TeX mode}
+  \expandafter\ifnum\everb@Esc=\@tempcnta   % escape-char
+    \ifx\everb@TeXmode@cmd\relax\else
+      \expandafter \everb@add@toks \csname \everb@TeXmode@cmd \endcsname
+    \fi
+    \everb@close@groups
+    \everb@TeXmodefalse
+    \everb@add@toks{\everb@TeXmode@post}
+    \let \everb@next \relax
+  \else
+    % \everb@next is used as an indicator here:
+    %    if the current char is absorbed into a control sequence,
+    %    then it's set to \everb@char,
+    %    otherwise it's set to \relax
+    \let \everb@next \relax
+    %
+    % First check if we are accumulating a control sequence
+    \ifx\everb@TeXmode@cmd\relax\else
+      \ifnum\@tempcnta>64 \ifnum\@tempcnta<91
+        \edef\everb@TeXmode@cmd{\everb@TeXmode@cmd #1}
+	\let \everb@next \everb@char
+      \fi\fi
+      \ifnum\@tempcnta>96 \ifnum\@tempcnta<123
+        \edef\everb@TeXmode@cmd{\everb@TeXmode@cmd #1}
+	\let \everb@next \everb@char
+      \fi\fi
+      \ifx\everb@next\relax
+        % current char is not letter, complete and execute the control sequence
+        \expandafter \ifx \csname \everb@TeXmode@cmd \endcsname \everb@empty
+	  % current control sequence is empty --> control word \#1
+	  \expandafter \everb@add@toks \csname #1\endcsname
+	  \let \everb@next \everb@char
+	\else
+	  % current control sequence is not empty --> add it to the list.
+	  \expandafter \everb@add@toks \csname \everb@TeXmode@cmd \endcsname
+	\fi
+	\let \everb@TeXmode@cmd \relax
+        \everb@skip@spacetrue
+      \fi
+    \fi
+    %
+    % process current char
+    \ifx\everb@next\relax
+      \ifnum \@tempcnta>127
+        \def\everb@next{\everb@CC #1}
+        \everb@skip@spacefalse
+      \else\ifnum \@tempcnta=`\\
+        \def\everb@TeXmode@cmd{}
+        \everb@skip@spacefalse
+      \else \ifnum \@tempcnta=`\{
+        % Don't know how to insert unmatched '{' or '}' into the token list
+	% Hack: save the list until '}', then add '{list}' to the token list
+	\everb@open@group
+      \else \ifnum \@tempcnta=`\}
+        \everb@close@group
+      \else \ifnum \@tempcnta=32
+        \ifeverb@skip@space\else \everb@add@toks{ }\fi
+        \protect\everb@skip@spacetrue
+      \else \ifnum \@tempcnta=9
+        \ifeverb@skip@space\else \everb@add@toks{ }\fi
+        \protect\everb@skip@spacetrue
+      \else
+        \everb@skip@spacefalse
+        \everb@convert{\@tempcnta}
+	  {\expandafter\everb@add@toks\expandafter}
+      \fi\fi\fi\fi\fi\fi
+    \fi
+  \fi
+  \ifx\everb@next\relax
+    \let \everb@next \everb@char
+  \fi
+}
+
+%
+\long\def\everb@check@endstring#1{
+  \everb@endinputfalse
+  \everb@check@save={}
+  \expandafter\everb@check@endstring@\everb@inline@endstring\par\xxx{#1}
+}
+\long\def\everb@check@endstring@#1#2\xxx#3{
+  \everb@check@save=\expandafter{\the\everb@check@save #3}
+  \let\everb@next\everb@check@endstring@@
+  \ifx#3\par \else 
+    \ifnum\@tempcnta<33 \else
+      \ifx#1#3
+        \ifx#2\par
+          \everb@endinputtrue
+        \else
+          \def\everb@next{\everb@check@endstring@#2\xxx}
+        \fi
+      \fi
+    \fi
+  \fi
+  \everb@next
+}
+
+\def\everb@check@endstring@@{
+  \ifeverb@endinput
+    \let\everb@next\everb@post
+  \else
+    \def\everb@next{\expandafter \everb@char@ \the\everb@check@save}
+  \fi
+  \everb@next
+}
+
+\long\def\everb@char#1{
+  %%%\immediate\write16{* do char: "\string #1"}
+  \ifx#1\par \@tempcnta=13 \else \@tempcnta=`#1 \fi
+  \ifeverb@inline
+    \def\everb@next{\everb@check@endstring{#1}}
+  \else
+    \def\everb@next{\everb@char@{#1}}
+  \fi
+  \everb@next
+}
+
+\long\def\everb@char@#1{
+  \ifeverb@TeXmode
+    \ifnum\@tempcnta=13		% end of line
+      \ifeverb@bol
+        \everb@add@toks\par
+      \else
+        \@tempcnta=32
+        \expandafter\everb@TeXmode@char\everb@space
+      \fi
+      \let\everb@next\relax
+      \everb@boltrue
+    \else
+      \ifnum\@tempcnta=32\else\ifnum\@tempcnta=9\else \everb@bolfalse\fi\fi
+      \everb@TeXmode@char #1
+    \fi
+  \else\expandafter\ifnum\everb@Esc=\@tempcnta	% escape-char
+    \let\everb@TeXmode@cmd\relax
+    \everb@TeXmodetrue
+    %
+    % switch to rm family and restore normal interline spacing
+    \everb@add@toks{\everb@TeXmode@pre}
+    %
+    \everb@skip@spacefalse
+    \everb@boltrue
+    \let\everb@next\everb@char
+  \else\ifnum\@tempcnta=13		% end of line
+    \ifeverb@TeXmode \else \everb@typeset@line\fi
+    \everb@charcnt=\z@
+    \let\everb@next\relax
+  \else\ifnum\@tempcnta>127
+    \def\everb@next{\everb@CC #1}
+  \else\ifnum\@tempcnta=9	% tab
+    \ifnum\everb@tabsize>\z@
+      \everb@debug{[line \arabic{everb@lineno}, expand tab]: %
+        charcnt=\the\everb@charcnt}
+      % \@tempcnta := \everb@charcnt % \everb@tabsize
+      \@tempcnta=\everb@charcnt
+      \divide\@tempcnta by \everb@tabsize
+      \multiply\@tempcnta by \everb@tabsize
+      \advance \@tempcnta by -\everb@charcnt
+      \advance \@tempcnta by \everb@tabsize
+      %
+      \everb@debug{[line \arabic{everb@lineno}, expand tab]: %
+        inserting \the\@tempcnta\space spaces}
+      \iffalse
+        % Use \hskip (can't be removed if on the last line)
+        \advance \everb@charcnt by \@tempcnta
+        \everb@dima=0.5em \everb@dima=\@tempcnta\everb@dima
+        \edef\everb@temp{\hskip \the\everb@dima}
+        \expandafter\everb@add@toks\expandafter{\everb@temp}
+        \advance \everb@charcnt by \m@ne % uncount the '\hskip ...' token
+      \else
+	% Insert spaces (which might be removed if on the last line)
+	\ifnum\@tempcnta>0\relax\everb@add@toks{ }\fi
+	\ifnum\@tempcnta>1\relax\everb@add@toks{ }\fi
+	\ifnum\@tempcnta>2\relax\everb@add@toks{ }\fi
+	\ifnum\@tempcnta>3\relax\everb@add@toks{ }\fi
+	\ifnum\@tempcnta>4\relax\everb@add@toks{ }\fi
+	\ifnum\@tempcnta>5\relax\everb@add@toks{ }\fi
+	\ifnum\@tempcnta>6\relax\everb@add@toks{ }\fi
+	\ifnum\@tempcnta>7\relax\everb@add@toks{ }\fi
+	\ifnum\@tempcnta>8\relax\everb@add@toks{ }\fi
+	\ifnum\@tempcnta>9\relax\everb@add@toks{ }\fi
+	\ifnum\@tempcnta>10\relax\everb@add@toks{ }\fi
+	\ifnum\@tempcnta>11\relax\everb@add@toks{ }\fi
+	\ifnum\@tempcnta>12\relax\everb@add@toks{ }\fi
+	\ifnum\@tempcnta>13\relax\everb@add@toks{ }\fi
+	\ifnum\@tempcnta>14\relax\everb@add@toks{ }\fi
+	\ifnum\@tempcnta>15\relax\everb@add@toks{ }\fi
+	% Note: the loop below won't work due to the
+	%	loop on input lines (\ifeof)
+        %%%\loop \ifnum\@tempcnta>0\relax\everb@add@toks{ }
+	%%%  \advance\@tempcnta by -1
+	%%%\repeat
+      \fi
+    \fi
+    \let\everb@next\everb@char
+  \else
+    \everb@add@toks #1
+    \let\everb@next\everb@char
+  \fi\fi\fi\fi\fi
+
+  \ifx\everb@next\relax
+    \everb@inc@lineno
+    \ifeverb@inline
+      \let\everb@next\everb@char
+    \fi
+  \fi
+  \everb@next}
+
+\def\everb@CC#1#2{\everb@add@toks{\everb@CC@glue#1#2\everb@CC@glue}\everb@char}
+
+\def\everb@catch@label{
+  \let\everb@label\label
+  \def\label{
+    \ifx \hyper@anchorstart \undefined \else
+      \hyper@anchorstart{\@currentHref}\hyper@anchorend  % set line anchor
+    \fi
+    \everb@label}
+}
+
+\def\everb@inc@lineno{
+  % Note: we put the stuffs generated by \refstepcounter in a hbox and save
+  % the box in \everb@boxa and typeset them later in \everb@typeset@line@
+  \ifx\everb@current@lineno\relax
+   \iffalse
+    \setbox\everb@boxa\hbox{\refstepcounter{everb@lineno}}
+   \else
+    % Hack: pretend the counter name is 'everb@\theeverb@fileno' to avoid the
+    % "destination with the same identifier" warnings of PDFLaTeX
+    {
+     \expandafter\let\csname c@everb\theeverb@fileno\endcsname\c@everb@lineno
+     \expandafter\let\csname p@everb\theeverb@fileno\endcsname\p@everb@lineno
+     \expandafter\let\csname theeverb\theeverb@fileno\endcsname\theeverb@lineno
+     \global\setbox\everb@boxa\hbox{\refstepcounter{everb\theeverb@fileno}}
+    }
+   \fi
+  \else
+    \addtocounter{everb@lineno}{\@ne}
+    \setbox\everb@boxa\hbox{}
+  \fi
+  \ifx\@currentHref\undefined\else
+    \ifx\everb@current@lineno\relax
+      \edef\@currentHref{everb@\theeverb@fileno.\theeverb@lineno}
+    \fi
+  \fi
+  \ifx\everb@current@lineno\relax
+    \edef\everb@current@lineno{\arabic{everb@lineno}}
+  \fi
+}
+
+%
+% Macro for actually typesetting a line of text
+% #1=0 means don't typeset line number
+
+\def\everb@typeset@line{
+  \ifnum\arabic{everb@lineno}<\everb@firstline
+    % do nothing
+    \let\everb@current@lineno\relax
+  \else \ifnum\everb@current@lineno>\everb@lastline
+    % do nothing
+    \let\everb@current@lineno\relax
+  \else
+    \everb@typeset@line@
+  \fi\fi
+  \everb@toks={}
+}
+
+\def\everb@typeset@line@{
+  \leavevmode 
+  % put the hyperref stuffs saved by \everb@inc@lineno here
+  \unhbox\everb@boxa
+  % line number
+  \ifeverb@nbr
+    \ifeverb@firstbox
+      % Offset = (displayed line number) - (real linenumber)
+      \ifnum\everb@linenumber=\everb@linenumber@auto
+        \def\everb@linenumber@offset{\z@}
+      \else
+        \@tempcnta=\everb@linenumber
+        \advance\@tempcnta by -\everb@current@lineno
+        \edef\everb@linenumber@offset{\the\@tempcnta}
+      \fi
+    \fi
+    \llap{{\scriptsize\sl\everb@color\everb@nbrcolor
+      \@tempcnta=\everb@current@lineno\relax
+      \advance \@tempcnta by \everb@linenumber@offset\relax
+      \@tempcntb=\arabic{everb@lineno}\relax
+      \advance \@tempcntb by \everb@linenumber@offset\relax
+      \the\@tempcnta \ifnum\@tempcnta<\@tempcntb --\the\@tempcntb \fi
+      \xdef\everb@linenumber{\the\@tempcntb}
+      \hskip \everb@nbrsep}}
+    \protected@edef\@currentlabel{\everb@linenumber}
+  \fi
+  \let\everb@current@lineno\relax
+
+  \ifeverb@firstbox
+    \global\everb@firstboxfalse
+    \oval@toptrue
+  \fi
+
+  \everb@@@{\hb@xt@\everb@width
+    {{\strut\everb@color\everb@fgcolor
+      \ifx\everb@hscale\@empty
+	\ifx\everb@vscale\@empty
+	  \def\@tempa{}%
+	\else
+	  \def\@tempa{\scalebox{1}[\everb@vscale]}%
+	\fi
+      \else
+	\ifx\everb@vscale\@empty
+	  \def\@tempa{\scalebox{\everb@hscale}[1]}%
+	\else
+	  \def\@tempa{\scalebox{\everb@hscale}[\everb@vscale]}%
+	\fi
+      \fi
+      \@tempa{\hbox{\the\everb@toks}}\hfill}}}
+    {\colorovalbox*}
+  \oval@topfalse
+  % Allow pagebreak (use '\unskip \nobreak' later to prevent break here)
+  \vskip \z@
+  \ifeverb@pagebreak \else \unskip \nobreak \fi
+}
+
+\def\everb@pre[#1]#2{
+  \endgroup	% to exit from \make@all@other mode for filename scanning)
+
+  \refstepcounter{everb@fileno}
+
+  \ifeverb@list \trivlist \global\@newlistfalse \fi
+
+  \ifvmode \noindent \fi	% add \parskip
+  \par\smallskip
+
+  \begingroup	% necessary to make changes to parameters local
+		% (FIXME: without the group \everbinput 
+		% runs across the EOF and continue with the rest
+		% of the master document)
+  % set default values for parameters
+  \everbatimtrue
+  \everb@dima=\everb@width
+  \everb@width=\z@
+  % parse list of parameters
+  \setkeys{everb}{#1}
+  \everb@prologue
+
+  \ifeverb@width\else
+    \ifdim\everb@dima=\z@ \else
+      \everb@width=\everb@dima
+    \fi
+  \fi
+  \ifdim\everb@width=\z@
+    \everb@width=\hsize
+    \ifnum \@listdepth>0
+      \ifx\linewidth\undefined\else
+        \everb@width=\linewidth
+      \fi
+    \fi
+    \hsize=\everb@width
+    \advance \everb@width by -\leftskip
+    \advance \everb@width by -\rightskip
+  \fi
+
+  %\renewcommand\baselinestretch{\@ne}
+
+  \parindent=\z@
+  \parskip=\z@ \parsep=\z@ \topsep=\parsep \itemsep=\parsep
+  \offinterlineskip
+
+  % reserve space for \fboxrule and \fboxsep
+  \ifeverb@box \advance \everb@width by -\tw@\fboxrule \fi
+  \advance \everb@width by -\tw@\fboxsep
+  %
+  %-------------------------------------------------------------------
+  \@tempcnta=0
+  \loop \catcode\@tempcnta=9 \ifnum\@tempcnta<32 \advance\@tempcnta\@ne \repeat
+  % 
+  %-----------------------------------------
+  \parfillskip\@flushglue
+  \obeylines \verbatim@font %\@noligs removed, it breaks mathmode (e.g., $t'$)
+  \everb@quotes@hack
+  \hyphenchar\font\m@ne 
+  \let\do\@makeother \dospecials
+  %-----------------------------------------
+  \frenchspacing
+  \ifeverb@star\else \@vobeyspaces \fi
+  \catcode`-=12
+  \catcode9=12
+  \ifnum\everb@Esc<\z@\else\ifnum\everb@Esc<256
+    \catcode\everb@Esc=12 %
+  \fi\fi
+
+  % Note: everb@lineno is reset to 0 by \refstepcounter{everb@fileno}
+  \ifeverb@nbr
+    \expandafter \everb@set@linenumber \expandafter{\everb@firstnumber}
+  \fi
+  \let\everb@current@lineno\relax
+  \everb@inc@lineno
+
+  \everb@TeXmodefalse
+  \mathsurround=0.2em\relax
+  \let\everb@TeXmode@cmd\relax
+
+  \everb@CJK@setup
+  \everb@CCT@setup
+
+  \everb@firstboxtrue
+  \oval@bottomfalse
+  \oval@topfalse
+  %
+  \everb@toks={}
+  \ifeverb@inline
+    \def\everb@next{\everb@do@inline}
+  \else
+    \def\everb@next{\everb@do@file{#2}}
+  \fi
+  \everb@catch@label
+  \everb@group@level=\z@
+  \everb@next
+}
+
+\long\def\everb@do@inline#1{
+  % skip spaces up to the first \par (if \everb@discard@firstpartrue
+  % then discard the first \par)
+  \ifx#1\par \@tempcnta=13 \else \@tempcnta=`#1 \fi
+  \ifnum \@tempcnta=13
+    \ifeverb@discard@firstpar
+      \def\everb@next{\everb@char}
+    \else
+      \def\everb@next{\everb@char#1}
+    \fi
+  \else \ifnum \@tempcnta=9
+    \def\everb@next{\everb@do@inline}
+  \else \ifnum \@tempcnta=32
+    \def\everb@next{\everb@do@inline}
+  \else
+    \def\everb@next{\everb@char#1}
+  \fi\fi\fi
+  \everb@next
+}
+
+\def\everb@do@file#1{
+  %
+  % Read and process the input file
+  \openin15 #1 %
+  \ifeof15 \PackageWarning{everb}{the file `#1' does not exist or is empty}\fi
+  \loop \ifeof15 \else
+      \read15 to \everb@temp
+      \ifeof15 \else % discard extra \par at EOF
+        \expandafter\everb@char\everb@temp
+      \fi
+  \repeat
+  \closein15 %
+  \message{<#1>}
+  \everb@post
+}
+
+\bgroup\catcode`\}=12\catcode`\|=2\gdef\everb@egroupchar{}|\egroup
+\def\everb@post{
+  \ifeverb@TeXmode
+    \ifeverb@inline
+      \PackageWarning{everb}{inline input ended in TeX mode}
+    \else
+      \PackageWarning{everb}{file ended in TeX mode}
+    \fi
+    \ifx\everb@TeXmode@cmd\relax\else
+      \expandafter \everb@add@toks \csname \everb@TeXmode@cmd \endcsname
+      \let\everb@TeXmode@cmd\relax
+    \fi
+    \everb@close@groups
+  \fi
+  %
+  % Check if \everb@toks only contains spaces and <tab> and don't typeset
+  % the line if so.
+  \everb@boltrue
+  \expandafter\everb@check@spaces\the\everb@toks\everb@check@spaces@end\@nnil
+  \ifeverb@bol \everb@toks={}\everb@charcnt=\z@\fi
+  \ifnum\everb@charcnt>\z@ \everb@typeset@line{1}\fi
+  %
+  % extra space and bottom rule
+  \unskip \nobreak	% disable page break before bottomrule
+  \oval@bottomtrue
+  \ifeverb@firstbox \oval@toptrue \fi
+  \everb@@@
+    {\hb@xt@\everb@width{\vrule height\z@ width\z@ depth\z@ \hss}}
+    {\colorovalbox*}
+  \par
+  \everb@epilogue
+  \smallskip\noindent
+  \endgroup
+  \ifeverb@list \endtrivlist \fi
+  \ifeverb@inline \everb@inline@endcmd \fi
+  \ignorespaces
+}
+
+%
+% Loop on the tokens (until \everb@check@spaces@end) and if a non-space char
+% is encountered then set \everb@bol to false
+\def\everb@check@spaces#1{
+  \let\everb@next\remove@to@nnil
+  \ifx #1\everb@check@spaces@end \else
+    \ifx #1\everb@CC@glue
+      \everb@bolfalse
+    \else
+      \ifx #1\everb@TeXmode@pre	% TeXmode begins with '\everb@TeXmode@pre'
+        \everb@bolfalse
+      \else
+        \@tempcnta=`#1\relax
+        \ifnum\@tempcnta=32
+          \let\everb@next\everb@check@spaces
+        \else \ifnum\@tempcnta=9
+          \let\everb@next\everb@check@spaces
+        \else
+          \everb@bolfalse
+        \fi\fi
+      \fi
+    \fi
+  \fi
+  \everb@next
+}
+
+%
+%----------------------------- ColorBoxed -------------------------------
+%
+\def\@coloredbox@stepsize{10pt} % decrease for finer control, increase for speed
+
+\newenvironment{colorboxed}[1][]
+  {\bgroup
+   \everb@dima=\everb@width
+   \everb@width=\z@
+   \setkeys{everb}{#1}
+   \everb@prologue
+   \ifeverb@width\else
+     \ifdim\everb@dima=\z@\else
+       \everb@width=\everb@dima
+     \fi
+   \fi
+   \ifdim\everb@width=\z@
+     \everb@width=\hsize
+     \ifnum \@listdepth>0
+       \ifx\linewidth\undefined\else
+         \everb@width=\linewidth
+       \fi
+     \fi
+     \advance\everb@width by -\leftskip
+     \advance\everb@width by -\rightskip
+   \fi
+   \setbox\everb@boxa\vbox\bgroup
+     \hsize=\everb@width
+     \ifeverb@box \advance\hsize by -\tw@\fboxrule \fi
+     \advance\hsize by -\tw@\fboxsep
+     \linewidth\hsize \columnwidth\hsize
+     \leftskip\z@ \rightskip\z@ \parfillskip\@flushglue
+  }
+  {\egroup
+   \ifvmode \noindent \fi	% add \parskip
+   \par\smallskip
+   \parskip=\z@ \parsep=\z@ \topsep=\parsep \itemsep=\parsep
+   \offinterlineskip
+   \vbadness \@M
+   \splittopskip \z@
+   \splitmaxdepth \z@
+   \lineskiplimit \maxdimen
+   \vfuzz \maxdimen
+   \everb@debug{========================================== begin}
+   \everb@debug{Line spacing: \the\baselineskip}
+   \everb@debug{maxdepth: \the\maxdepth}
+   \everb@firstboxtrue
+   \@colorboxed@do
+   \par
+   \everb@epilogue
+   \smallskip\noindent
+   \egroup
+   \everb@debug{========================================== end}
+   %
+   % This appends \ignorespaces after the environment
+   \@ignoretrue
+}
+
+\ifx\@tempboxb\undefined \newbox\@tempboxb \fi
+
+\def\@colorboxed@do{
+  \everb@debug{total=\the\pagetotal\space goal=\the\vsize}
+  \everb@debug{fboxrule=\the\fboxrule\space fboxsep=\the\fboxsep}
+  \ifinner
+    % output the whole box if in an inner mode
+    \@colorboxed@out\everb@boxa
+    \@tempdima=\z@
+  \else \ifeverb@pagebreak
+    \@tempdima\ht\everb@boxa \advance\@tempdima\dp\everb@boxa
+  \else
+    % output the whole box if in an inner mode
+    \@colorboxed@out\everb@boxa
+    \@tempdima=\z@
+  \fi \fi
+  \ifdim\@tempdima=\z@
+    \let\@colorboxed@next\relax
+  \else
+    \par\@tempdimb=\vsize \advance\@tempdimb by -\pagetotal 
+    \ifeverb@box \advance\@tempdimb by -\fboxrule \fi
+    \advance\@tempdimb by -2\fboxsep 
+    \advance\@tempdimb by \lineskip
+    \everb@debug{box=\the\@tempdima\space remain=\the\@tempdimb}
+    \ifdim\@tempdimb<\@coloredbox@stepsize
+      % Note: the materials on the page might be higher than \vsize,
+      % so ejecting page here may leaves a page with only a few lines
+      % on top.
+      \everb@debug{forcing ejecting previous page (hacky!)}
+      \par 
+      \nobreak \vskip 0.25\vsize
+      \penalty -200 
+      \vskip -0.25\vsize \nobreak
+    \else
+      \ifeverb@firstbox \everb@firstboxfalse \else \nobreak \fi
+      %
+      % The whole box is by \fboxrule higher than a partial box
+      \ifeverb@box \advance \@tempdima by\fboxrule \fi
+      \ifdim\@tempdima>\@tempdimb
+        \@colorboxed@cut
+	\let\@colorboxed@next\@colorboxed@do
+      \else
+    	\everb@debug{output whole box}
+        \@colorboxed@out\everb@boxa
+	\setbox\everb@boxa=\box\voidb@x
+      \fi
+    \fi
+    \let\@colorboxed@next\@colorboxed@do
+  \fi
+  \@colorboxed@next
+}
+
+% try to split \everb@boxa to height \@tempdimb
+\def\@colorboxed@cut{
+  \setbox\@tempboxb=\copy\everb@boxa	% save current box
+  \everb@dima\@tempdimb	% save remaining height on current page to \everb@dima
+  \@colorboxed@cut@
+  % TODO: clear contents of \@tempboxb for saving memory
+}
+
+%
+% recursive routine to find out largest possible cut for splitting the box
+\def\@colorboxed@cut@{
+  \everb@debug{--- trying to split box to \the\@tempdimb}
+  \setbox\@tempboxa=\vsplit\everb@boxa to \@tempdimb
+  % Reset the split box to its natural height
+  \setbox\@tempboxa=\vbox{\unvbox\@tempboxa}
+  % adjust width of the boxes (they may be smaller than they should be)
+  \@tempdima=\everb@width
+  \ifeverb@box \advance\@tempdima by -\tw@\fboxrule \fi
+  \advance\@tempdima by -\tw@\fboxsep
+  \wd\everb@boxa=\@tempdima
+  \wd\@tempboxa=\@tempdima
+  \everb@debug{newbox: ht=\the\ht\@tempboxa, dp=\the\dp\@tempboxa}
+  % check if the resulting box is too high to fit into current page
+  \@tempdima=\ht\@tempboxa \advance\@tempdima by \dp\@tempboxa
+  \advance \@tempdima by -0.5\pagestretch % allow 0.5\pagestretch higher
+
+  \ifdim\ht\everb@boxa=\z@ \ifdim\dp\everb@boxa=\z@
+    % if remaining box is void, add \fboxrule
+    \ifeverb@box \advance \@tempdima by \fboxrule \fi
+  \fi\fi
+
+  \ifdim \@tempdima>\everb@dima
+    \setbox\everb@boxa=\copy\@tempboxb
+    \ifdim\@tempdimb<\@coloredbox@stepsize
+      % TODO: issue an error if \everb@dima is large (>20pt?)
+      \everb@debug{ejecting current page before further processing.}
+      \newpage
+      \let\@colorboxed@next\relax
+    \else
+      \advance \@tempdimb by -\@coloredbox@stepsize
+      \everb@debug{decreasing box height.}
+      \let\@colorboxed@next\@colorboxed@cut@
+    \fi
+  \else
+    % 20040928: bugfix, \@tempdima is changed, recompute its value
+    \@tempdima=\ht\@tempboxa \advance\@tempdima by \dp\@tempboxa
+    \ifdim \@tempdima>\z@
+      \everb@debug{output partial box: ht=\the\ht\@tempboxa, %
+      		dp=\the\dp\@tempboxa}
+      \everb@debug{remaining box: ht=\the\ht\everb@boxa, dp=\the\dp\everb@boxa}
+      \oval@bottomfalse
+      \ifdim\ht\everb@boxa=\z@ \ifdim\dp\everb@boxa=\z@
+        \everb@debug{remaining box is void, output whole box}
+        \oval@bottomtrue
+      \fi \fi
+      \nobreak \@colorboxed@out\@tempboxa
+      \oval@bottomtrue
+    \else
+      \everb@debug{split box is void, ejecting current page.}
+    \fi
+    \newpage	% FIXME: \penalty -200 ?
+    \let\@colorboxed@next\relax
+  \fi
+  \@colorboxed@next
+}
+
+\def\@colorboxed@out#1{\par\noindent
+  \everb@@@{\box#1}{\colorovalbox*}\par \oval@topfalse}
+
+%
+%----------------------------- Color Ovalbox -------------------------------
+%
+
+% To install the font 'corners':
+%
+% 1. put corners.pfb in a subdirecctory of TEXMF/fonts/type1
+%
+% 2. put corners.tfm in a subdirecctory of TEXMF/fonts/tfm
+%
+% 3. add the following line to psfonts.map (TEXMF/dvips/config), and other
+%    .map files under TEXMF/dvipdfm, TEXMF/pdftex, etc.:
+%	
+%	corners corners <corners.pfb
+%
+% 4. refresh filenames databases (maketexlsr, texhash, initexmf --update-fndb)
+%
+
+\newdimen\fboxradius
+\fboxradius=7\p@
+\def\everb@pagecolor{{white}}
+
+\def\oval@trI{\llap{\vbox to \z@{\hbox{\char0}\vss}}}
+\def\oval@brI{\llap{\vbox to \z@{\vss\hbox{\char1}}}}
+\def\oval@blI{\rlap{\vbox to \z@{\vss\hbox{\char2}}}}
+\def\oval@tlI{\rlap{\vbox to \z@{\hbox{\char3}\vss}}}
+
+\def\oval@trO{\llap{\vbox to \z@{\hbox{\char4}\vss}}}
+\def\oval@brO{\llap{\vbox to \z@{\vss\hbox{\char5}}}}
+\def\oval@blO{\rlap{\vbox to \z@{\vss\hbox{\char6}}}}
+\def\oval@tlO{\rlap{\vbox to \z@{\hbox{\char7}\vss}}}
+
+%
+% \if's controlling whether typesetting a specific rule
+\newif\ifoval@top \oval@toptrue
+\newif\ifoval@bottom \oval@bottomtrue
+\newif\ifoval@adjust
+
+\def\oval@loadfont#1#2{
+  % Load the font at size #1, and assing it to the control sequence #2
+  %
+  % note: save font in macros like \oval@font12pt to avoid reloading the
+  % font at the same size
+  \expandafter \ifx \csname oval@font#1\endcsname \relax
+    \everb@debug{loading font 'corners' at #1}
+    \expandafter \global \expandafter \font \csname oval@font#1\endcsname
+	corners at #1 %
+  \fi
+  \expandafter \let \expandafter #2\csname oval@font#1\endcsname
+
+  \iffalse
+    % Test the font 'corners'
+    \vspace*{2.5cm}
+    \bgroup
+    \fboxsep=-1pt \fboxrule=1pt \color{red}
+    \font\temp=corners at 71.13pt % 2.5cm
+    \noindent
+    \message{corners font, fontdimen6=\the\fontdimen6\temp}
+    \setbox0\hbox{\temp\char0}
+    \message{Char 0, top right,    wd=\the\wd0, ht=\the\ht0, dp=\the\dp0}
+    \fbox{{\color{blue}\box0}}\hspace*{2.5cm}
+    \setbox0\hbox{\temp\char1}
+    \message{Char 1, bottom right, wd=\the\wd0, ht=\the\ht0, dp=\the\dp0}
+    \fbox{{\color{blue}\box0}}\hspace*{2.5cm}\\[2.5cm]
+    \setbox0\hbox{\temp\char2}
+    \message{Char 2, bottom left,  wd=\the\wd0, ht=\the\ht0, dp=\the\dp0}
+    \fbox{{\color{blue}\box0}}\hspace*{2.5cm}
+    \setbox0\hbox{\temp\char3}
+    \message{Char 3, top left,     wd=\the\wd0, ht=\the\ht0, dp=\the\dp0}
+    \fbox{{\color{blue}\box0}}\hspace*{2.5cm}\par
+    \vspace*{2.5cm}
+    \setbox0\hbox{\temp\char4}
+    \message{Char 0, top right,    wd=\the\wd0, ht=\the\ht0, dp=\the\dp0}
+    \fbox{{\color{blue}\box0}}\hspace*{2.5cm}
+    \setbox0\hbox{\temp\char5}
+    \message{Char 1, bottom right, wd=\the\wd0, ht=\the\ht0, dp=\the\dp0}
+    \fbox{{\color{blue}\box0}}\hspace*{2.5cm}\\[2.5cm]
+    \setbox0\hbox{\temp\char6}
+    \message{Char 2, bottom left,  wd=\the\wd0, ht=\the\ht0, dp=\the\dp0}
+    \fbox{{\color{blue}\box0}}\hspace*{2.5cm}
+    \setbox0\hbox{\temp\char7}
+    \message{Char 3, top left,     wd=\the\wd0, ht=\the\ht0, dp=\the\dp0}
+    \fbox{{\color{blue}\box0}}\hspace*{2.5cm}\par
+    \vspace*{2.5cm}
+
+    \noindent
+    \hspace*{2.5cm}\fbox{\color{blue}\temp\oval@trI} %
+    \hspace*{2.5cm}\fbox{\color{blue}\temp\oval@brI}\\[2.5cm]
+    \hspace*{2.5cm}\fbox{\color{blue}\temp\oval@blI} %
+    \hspace*{2.5cm}\fbox{\color{blue}\temp\oval@tlI}\par
+    \vspace*{2.5cm}
+    \hspace*{2.5cm}\fbox{\color{blue}\temp\oval@trO} %
+    \hspace*{2.5cm}\fbox{\color{blue}\temp\oval@brO}\\[2.5cm]
+    \hspace*{2.5cm}\fbox{\color{blue}\temp\oval@blO} %
+    \hspace*{2.5cm}\fbox{\color{blue}\temp\oval@tlO}\par
+    \vspace*{2.5cm}
+    \egroup
+  \fi
+}
+
+\def\oval@loadfonts#1{
+  % adjust the radius
+  % if \fboxradius <= 100sp, then intepret it as percentage of the smaller
+  % of the box width and height
+  %
+  % \@tempdima=min(width,height)
+  \@tempdima=\ht#1\advance\@tempdima by\dp#1
+  \ifdim\@tempdima>\wd#1\@tempdima=\wd#1\fi
+  % check whether \fboxradius<=100sp
+  \ifnum\fboxradius>100\else
+    \@tempdimb=0.01\@tempdima
+    \@tempcnta=\fboxradius \fboxradius=\@tempcnta\@tempdimb
+  \fi
+  \ifoval@adjust
+    % adjust if radius too large
+    \ifdim\fboxradius>.5\@tempdima
+      \fboxradius=.5\@tempdima \everb@boltrue
+      \PackageWarning{everb}{\string\fboxradius \space adjusted}
+    \fi
+  \fi
+
+  % larger font
+  \@tempdima=\fboxradius % enlarge the character by 10/9 (depend on the font!)
+  \multiply\@tempdima by 10 \divide\@tempdima by 9 %
+  \oval@loadfont{\the\@tempdima}{\oval@fonta}
+  \advance\@tempdima by -\fboxradius
+  \edef\fbox@adjust{\the\@tempdima}
+
+  % smaller font
+  \ifdim\fboxrule=\z@
+    \let\oval@fontb\relax
+  \else
+    \@tempdima=\fboxradius
+    \advance\@tempdima by -\fboxrule
+    \ifdim\@tempdima>\z@
+      \oval@loadfont{\the\@tempdima}{\oval@fontb}
+    \else
+      \let\oval@fontb\relax
+    \fi
+  \fi
+}
+
+\def\oval@topcorners{\hb@xt@\hsize{
+  \ifeverb@oval@a
+    \ifx\oval@fontb\relax\else
+     \rlap{\vbox to\z@{\vskip\fboxrule\hskip\fboxrule\oval@fontb\oval@tlI\vss}}
+    \fi
+    \rlap{\vbox to\z@{\vskip -\fbox@adjust \hskip -\fbox@adjust
+      {\everb@color\everb@pagecolor\oval@fonta\oval@tlO}\vss}}
+  \fi
+  \hss
+  \ifeverb@oval@b
+    \ifx\oval@fontb\relax\else
+     \rlap{\vbox to\z@{\vskip\fboxrule\hskip-\fboxrule\oval@fontb\oval@trI\vss}}
+    \fi
+    \rlap{\vbox to\z@{\vskip -\fbox@adjust \hskip \fbox@adjust
+      {\everb@color\everb@pagecolor\oval@fonta\oval@trO}\vss}}
+  \fi
+}}
+
+\def\oval@bottomcorners{\hb@xt@\hsize{
+  \ifeverb@oval@c
+    \ifx\oval@fontb\relax\else
+     \rlap{\vbox to\z@{\vskip-\fboxrule\hskip\fboxrule\oval@fontb\oval@blI\vss}}
+    \fi
+    \rlap{\vbox to\z@{\vskip \fbox@adjust \hskip -\fbox@adjust
+      {\everb@color\everb@pagecolor\oval@fonta\oval@blO}\vss}}
+  \fi
+  \hss
+  \ifeverb@oval@d
+    \ifx\oval@fontb\relax\else
+    \rlap{\vbox to\z@{\vskip-\fboxrule\hskip-\fboxrule\oval@fontb\oval@brI\vss}}
+    \fi
+    \rlap{\vbox to\z@{\vskip \fbox@adjust \hskip \fbox@adjust
+      {\everb@color\everb@pagecolor\oval@fonta\oval@brO}\vss}}
+  \fi
+}}
+
+%
+% \colorovalbox takes the same form of arguments as \fcolorbox (color package)
+% \colorovalbox* disables adjusting \fboxradius
+%
+% check whether *-form
+\def\colorovalbox{\@ifnextchar*
+  {\oval@adjustfalse\expandafter\@colorovalbox\@gobble}
+  {\oval@adjusttrue\@colorovalbox}}
+%
+% check whether [model]{name1}{name2} or {color1}{color2}
+\def\@colorovalbox{\@ifnextchar[{\color@oval@box}{\color@oval@box@}}
+\def\color@oval@box[#1]#2#3#4{
+  \color@oval@box@@{[#1]{#2}}{[#1]{#3}}{[#1]{#2}{#3}}{#4}}
+\def\color@oval@box@#1#2#3{
+  \color@oval@box@@{{#1}}{{#2}}{{#1}{#2}}{#3}}
+
+% Note: #1 = {name1} or [model]{color1}, 
+%	#2 = {name2} or [model]{color2},
+%	#3 = {name1}{name2} or [model]{color1}{color2},
+%	#4 = box contents
+\def\color@oval@box@@#1#2#3#4{\bgroup
+  \ifeverb@box\else \fboxrule=\z@ \fi
+  \ifeverb@oval\else \fboxradius=\z@ \fi
+  \leftskip\z@ \rightskip\z@
+  % This fixes the underfull warning in `center' environment when \fboxradius>0
+  \parfillskip\@flushglue
+  %--------
+  %%%\setbox\@tempboxa\hbox{\fcolorbox#3{#4}}
+  %%%\edef\oval@dp{\the\dp\@tempboxa}
+  %--------
+  % The original box
+  \setbox\@tempboxa\hbox{#4}
+  \@tempdima=\dp\@tempboxa 
+  \ifoval@bottom
+    \advance \@tempdima by\fboxsep
+    \advance \@tempdima by\fboxrule
+  \fi
+  \edef\oval@dp{\the\@tempdima}
+  %
+  % Background color and \fboxsep
+  \ifeverb@bg \def\@tempa{\colorbox#2}\else \let\@tempa\fbox \fi
+  %--- save \fboxrule and \fboxsep
+  \edef\everb@fboxsep{\the\fboxsep}
+  \edef\everb@fboxrule{\the\fboxrule}
+  %--- temperarily set \fboxrule and \fboxsep to 0 for calling
+  %--- \colorbox or \fbox (to set background color)
+  \fboxsep=\z@ \fboxrule=\z@
+  \setbox\@tempboxa\hbox{\@tempa{\vbox{
+    \ifeverbatim
+      \ifoval@top
+	\vskip\everb@fboxsep 
+	%???\ifeverb@box@t \else \vskip\everb@fboxrule \fi
+      \fi
+    \else
+      \vskip\everb@fboxsep
+      %???\ifeverb@box@t \else \vskip\everb@fboxrule \fi
+    \fi
+    \hbox{
+      \hskip\everb@fboxsep
+      %???\ifeverb@box@l \else \hskip\everb@fboxrule \fi
+      \box\@tempboxa
+      \hskip\everb@fboxsep
+      %???\ifeverb@box@r \else \hskip\everb@fboxrule \fi
+    }
+    \ifeverbatim
+      \ifoval@bottom
+	\vskip\everb@fboxsep 
+	%???\ifeverb@box@b \else \vskip\everb@fboxrule \fi
+      \fi
+    \else
+      \vskip\everb@fboxsep 
+      %???\ifeverb@box@b \else \vskip\everb@fboxrule \fi
+    \fi
+  }}}
+  %--- restore \fboxrule and \fboxsep
+  \fboxsep=\everb@fboxsep\relax
+  \fboxrule=\everb@fboxrule\relax
+
+  % Load oval fonts here (adjusting \fboxradius)
+  \ifdim\fboxradius>\z@ \oval@loadfonts\@tempboxa \fi
+
+  %
+  % rules
+  % note: the box is drawn the first, then the rules
+  \setbox\@tempboxa\hbox{\vbox{
+    \hsize=\wd\@tempboxa \advance\hsize by2\fboxrule
+    \vsize=\ht\@tempboxa \advance\vsize by\dp\@tempboxa
+    {\offinterlineskip \parindent=\z@ \parskip=\z@
+      \hb@xt@\hsize{\hss\vbox to \z@{\ifoval@top \vskip\fboxrule \fi
+	\box\@tempboxa\vss}\hss}
+      \color#1
+      % top rule
+      \ifoval@top\hbox{
+	\ifeverb@box@t\else\ifeverb@box\ifdim\fboxradius>\z@\ifdim\fboxrule>\z@
+	  %???\ifdim \fboxradius>\fboxrule \advance \fboxradius-\fboxrule \fi
+	  \ifeverb@oval@a
+	    % short rule at top-left corner
+	    \rlap{\vrule height\fboxrule depth\z@ width\fboxradius}
+	  \fi
+	  \ifeverb@oval@b
+	    % short rule at top-right corner
+	    \rlap{\hb@xt@\hsize{\hss
+			\vrule height\fboxrule depth\z@ width\fboxradius}}
+	  \fi
+	\fi\fi\fi\fi
+	{
+	  \ifeverb@box@t \else \everb@boxfalse \fi
+	  \everb@hrule\everb@toptitle\everb@L\everb@R\everb@V
+	  %\ifeverb@box\hrule height\fboxrule depth\z@\else\vskip\fboxrule\fi
+	}
+      }\fi
+      % left rule
+      {
+	\ifeverb@box@l \else \everb@boxfalse \fi
+        \ifeverb@box \vrule width\fboxrule \else \hskip\fboxrule \fi
+      }
+      \ifeverb@box@l\else\ifeverb@box\ifdim\fboxradius>\z@\ifdim\fboxrule>\z@
+	\hskip -\fboxrule
+	\vbox to\vsize{\hsize\fboxrule
+	  \ifdim \fboxradius>\fboxrule \advance \fboxradius-\fboxrule \fi
+	  \ifeverb@oval@a
+	    % short rule at top-left corner
+	    \rlap{\vrule width\fboxrule depth\z@ height\fboxradius}
+	  \fi
+	  \vss
+	  \ifeverb@oval@c
+	    % short rule at bottom-left corner
+	    \rlap{\vrule width\fboxrule depth\z@ height\fboxradius}
+	  \fi
+	}
+      \fi\fi\fi\fi
+      \@tempdima=\hsize \advance\@tempdima by-2\fboxrule
+      \vbox{\hrule width\@tempdima height\z@ depth\z@ \vskip\vsize}
+      % right rule
+      {
+	\ifeverb@box@r \else \everb@boxfalse \fi
+        \ifeverb@box \vrule width\fboxrule \else \hskip\fboxrule \fi
+      }
+      \ifeverb@box@r\else\ifeverb@box\ifdim\fboxradius>\z@\ifdim\fboxrule>\z@
+	%\hskip -\fboxrule	% not required, why?
+	\vbox to\vsize{\hsize\fboxrule
+	  \ifdim \fboxradius>\fboxrule \advance \fboxradius-\fboxrule \fi
+	  \ifeverb@oval@b
+	    % short rule at top-right corner
+	    \rlap{\vrule width\fboxrule depth\z@ height\fboxradius}
+	  \fi
+	  \vss
+	  \ifeverb@oval@d
+	    % short rule at bottom-right corner
+	    \rlap{\vrule width\fboxrule depth\z@ height\fboxradius}
+	  \fi
+	}
+      \fi\fi\fi\fi
+      % bottom rule
+      \ifoval@bottom\par\hbox{
+	\rlap{
+	  \ifeverb@box@b \else \everb@boxfalse \fi
+	  \everb@hrule\everb@bottomtitle\everb@L\everb@R\everb@V
+	  %\ifeverb@box\hrule height\fboxrule depth\z@\else\vskip\fboxrule\fi
+	}
+	\ifeverb@box@b\else\ifeverb@box\ifdim\fboxradius>\z@\ifdim\fboxrule>\z@
+	  %???\ifdim \fboxradius>\fboxrule \advance \fboxradius-\fboxrule \fi
+	  \ifeverb@oval@c
+	    % short rule at bottom-left corner
+	    \rlap{\vrule height\fboxrule depth\z@ width\fboxradius}
+	  \fi
+	  \ifeverb@oval@d
+	    % short rule at bottom-right corner
+	    \rlap{\hb@xt@\hsize{\hss
+			\vrule height\fboxrule depth\z@ width\fboxradius}}
+	  \fi
+	\fi\fi\fi\fi
+      }\fi
+    }
+  }}
+
+  %\message{original: wd=\the\wd\@tempboxa \space ht=\the\ht\@tempboxa \space
+  %	   dp=\the\dp\@tempboxa}
+
+  % put the corners
+  \setbox\@tempboxa\hbox{\vbox{
+   \hsize=\wd\@tempboxa
+   \vsize=\ht\@tempboxa \advance\vsize by \dp\@tempboxa
+   {\offinterlineskip \parindent=\z@ \parskip=\z@
+    \hb@xt@\hsize{\hss\vbox to \z@{\box\@tempboxa\vss}\hss}
+    \color#1
+    \ifoval@top \ifdim\fboxradius>\z@ \oval@topcorners \fi \fi
+    \vskip \vsize
+    \ifoval@bottom \ifdim\fboxradius>\z@ \oval@bottomcorners \fi \fi
+  }}}
+
+  % output the box, adjusting baseline
+  \leavevmode\lower\oval@dp\box\@tempboxa
+\egroup}
+
+%
+% Macros for typesetting top/bottom rules with an optional title
+% #1=title, #2=left glue, #3=right glue, #4=vertical adjust
+\def\everb@hrule#1#2#3#4{{\par
+  \ifx#1\@empty
+    \everb@title@cc \setbox\z@\box\voidb@x
+  \else
+    \setbox\z@\hbox{\expandafter\everb@settitle#1\@end}
+  \fi
+  \setbox\z@\hbox to\hsize{
+    % \@tempa is the horizontal rule template
+    \ifeverb@box
+      \def\@tempa{\leaders\hrule width\p@ height\fboxrule depth\z@}
+    \else
+      \def\@tempa{\leaders\hrule width\p@ height\z@ depth\z@}
+      %\def\@tempa{\leaders\hb@xt@\p@{\vrule width\z@ height\fboxrule depth\z@
+%		\hfill}}
+    \fi
+    \@tempdima=\ht\z@ \advance\@tempdima\dp\z@
+    \ifdim\fboxradius<\everb@titleskip \fboxradius\everb@titleskip \fi
+    \@tempa\hskip\fboxradius
+    #2\lower#4\box\z@ #3
+    \@tempa\hskip\fboxradius
+  }
+  \ht\z@=\fboxrule \dp\z@=\z@\box\z@}}
+
+% Macros for setting title position, #1={top|bottom}, #2={l|c|r}, #3={t|c|b}
+\def\everb@settitle{\@ifnextchar[{\everb@settitle@}{\everb@settitle@[cc]}}
+\def\everb@settitle@[#1]#2\@end{
+  \expandafter\let\expandafter\@tempa\csname everb@title@#1\endcsname
+  \ifx\@tempa\relax
+    \PackageError{everb}{Invalid option: [#1]}
+      {Valid options are of the form `[xy]' where x=l|c|r and y=t|c|b}
+  \else
+    \@tempa
+  \fi
+  \hskip\everb@titlesep #2\hskip\everb@titlesep}
+
+\def\everb@title@lt{\everb@title@hl\everb@title@vt}
+\def\everb@title@lc{\everb@title@hl\everb@title@vc}
+\def\everb@title@lb{\everb@title@hl\everb@title@vb}
+\def\everb@title@ct{\everb@title@hc\everb@title@vt}
+\def\everb@title@cc{\everb@title@hc\everb@title@vc}
+\def\everb@title@cb{\everb@title@hc\everb@title@vb}
+\def\everb@title@rt{\everb@title@hr\everb@title@vt}
+\def\everb@title@rc{\everb@title@hr\everb@title@vc}
+\def\everb@title@rb{\everb@title@hr\everb@title@vb}
+
+% Note: \box0 contains the title and  \@tempdima=\ht0+\dp0
+\def\everb@title@vt{\gdef\everb@V{\ht\z@}}
+\def\everb@title@vc{\gdef\everb@V{.4\@tempdima}}
+\def\everb@title@vb{\gdef\everb@V{-\dp\z@}}
+
+\def\everb@title@hl{\gdef\everb@L{}\gdef\everb@R{\@tempa\hss}}
+\def\everb@title@hc{\gdef\everb@L{\@tempa\hss}\gdef\everb@R{\@tempa\hss}}
+\def\everb@title@hr{\gdef\everb@L{\@tempa\hss}\gdef\everb@R{}}
+
+%
+%-----------------------------------------------------------------------------
+%
+
+\endlinechar `\^^M
+\endinput
