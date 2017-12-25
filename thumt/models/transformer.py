@@ -8,10 +8,9 @@ from __future__ import print_function
 import copy
 
 import tensorflow as tf
+import thumt.interface as interface
 import thumt.layers as layers
 from thumt.utils.loss import get_loss
-
-from .model import NMTModel
 
 
 def get_weights(params):
@@ -238,7 +237,7 @@ def model_graph(features, labels, mode, params):
     return loss
 
 
-class Transformer(NMTModel):
+class Transformer(interface.NMTModel):
     def __init__(self, params, scope="transformer"):
         super(Transformer, self).__init__(params=params, scope=scope)
 

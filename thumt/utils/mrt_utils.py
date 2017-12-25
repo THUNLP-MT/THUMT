@@ -11,54 +11,52 @@ import thumt.utils.bleu as bleu
 # Default value for INF
 INF = 1. * 1e7
 
-def get_MRT(features, params, model):
+
+def get_mrt_features(features, params, model):
     # Generate samples
-    samples = create_sampling_graph(
-                    model.get_inference_func(),
-                    features,
-                    params, 
-                    training = True)
-    features['samples'] = samples 
+    samples = create_sampling_graph(model.get_inference_func(), features,
+                                    params, training=True)
+
+    eos_id = params.mapping["target"][params.eos]
+    features["samples"] = samples
     # Delete bos & add eos
-    features['samples'] = features['samples'][:,1:]
-    sample_shape = tf.shape(features['samples'])
-    eos_seq = tf.ones((sample_shape[0],1)) * params.mapping["target"][params.eos] 
+    features["samples"] = features["samples"][:, 1:]
+    sample_shape = tf.shape(features["samples"])
+    eos_seq = tf.ones([sample_shape[0], 1]) * eos_id
     eos_seq = tf.to_int32(eos_seq)
-    features['samples'] = tf.concat([features['samples'], eos_seq],1)
+    features["samples"] = tf.concat([features["samples"], eos_seq], 1)
+
     # Add the gold reference
-    pad_num = tf.shape(features['samples'])[1] - tf.shape(features['target'])[1]
+    pad_num = (tf.shape(features["samples"])[1] -
+               tf.shape(features["target"])[1])
     padding = tf.zeros((1, pad_num), dtype=tf.int32)
     target_pad = tf.concat([features["target"], padding], axis=1)
-    features['samples'] = tf.concat([features['samples'], target_pad],
+    features["samples"] = tf.concat([features["samples"], target_pad],
                                     axis=0)
-    # Delete repeatition 
-    features['samples'] = tf.py_func(get_unique, 
-                                [features['samples'], 
-                                params.mapping["target"][params.eos]], 
-                                tf.int32)
-    features['samples'].set_shape([None,None])
-    sample_shape = tf.shape(features['samples'])
+    # Delete repetition
+    features["samples"] = tf.py_func(get_unique, [features["samples"], eos_id],
+                                     tf.int32)
+    features["samples"].set_shape([None, None])
+    sample_shape = tf.shape(features["samples"])
     # Get sentence length
-    features['sample_length'] = get_len(features['samples'], 
-                                params.mapping["target"][params.eos])
+    features["sample_length"] = get_len(features["samples"], eos_id)
     # Transform to int32
-    features['samples'] = tf.to_int32(features['samples'])
-    features['sample_length'] = tf.to_int32(features['sample_length'])
+    features["samples"] = tf.to_int32(features["samples"])
+    features["sample_length"] = tf.to_int32(features["sample_length"])
     # Repeat source sentences
-    features["source"] = tf.tile(features["source"], 
-                                [sample_shape[0], 1])
+    features["source"] = tf.tile(features["source"], [sample_shape[0], 1])
     features["source_length"] = tf.tile(features["source_length"],
                                         [sample_shape[0]])
     # Calculate BLEU
-    bleu_fn = lambda x: bleu_tensor(x, features["target"], 
-                                params.mapping["target"][params.eos])
-    features["BLEU"] = tf.map_fn(bleu_fn, features['samples'], 
-                                    dtype=tf.float32)
+    bleu_fn = lambda x: bleu_tensor(x, features["target"], eos_id)
+    features["BLEU"] = tf.map_fn(bleu_fn, features["samples"],
+                                 dtype=tf.float32)
     features["BLEU"].set_shape((None,))
     # Set target
     features["target"] = features["samples"]
     features["target_length"] = features["sample_length"]
     return features
+
 
 def cut_sen(sen, eos):
     if not eos in sen:
@@ -67,38 +65,35 @@ def cut_sen(sen, eos):
         pos_eos = sen.index(eos)
         return sen[:pos_eos+1]
 
+
 def get_unique(sens, eos):
-    '''
-        sens: a numpy array
-    '''
     sens = sens.tolist()
     result = []
     maxlen = -1
-    # remove repetion
+    # remove repetition
     for sen in sens:
         tmp = cut_sen(sen, eos)
-        if not tmp in result:
+        if tmp not in result:
             result.append(tmp)
             if len(tmp) > maxlen:
                 maxlen = len(tmp)
     result = [sen + [eos] * (maxlen - len(sen)) for sen in result]
     result = numpy.asarray(result, dtype=numpy.int32)
     return result
-    
+
 
 def get_len(sen, eos):
-    '''
-        get the length of each sample
-    '''
     indices = tf.where(tf.equal(sen, eos))
     result = tf.segment_min(indices[:,1], indices[:,0])
     return result
 
+
 def log_prob_from_logits(logits):
     return logits - tf.reduce_logsumexp(logits, axis=2, keep_dims=True)
 
+
 def sampler(symbols_to_logits_fn, initial_ids, sample_num, decode_length,
-                vocab_size, eos_id, features=None):
+            vocab_size, eos_id, features=None):
     batch_size = tf.shape(initial_ids)[0]
 
     # Expand each batch to sample_num
@@ -145,7 +140,7 @@ def create_sampling_graph(model_fns, features, params, training = False):
         model_fns = [model_fns]
 
     decode_length = params.decode_length
-    sample_num = params.sample_num_MRT
+    sample_num = params.mrt_sample
     top_beams = params.top_beams
 
     # [batch, decoded_ids] => [batch, vocab_size]
@@ -197,13 +192,13 @@ def create_sampling_graph(model_fns, features, params, training = False):
     vocab_size = len(params.vocabulary["target"])
     # Setting decode length to input length + decode_length
     decode_length = tf.to_float(tf.shape(features["target"])[1]) \
-                        * tf.constant(params.len_ratio_MRT)
+                        * tf.constant(params.mrt_length_ratio)
     decode_length = tf.to_int32(decode_length)
 
-    ids = sampler(symbols_to_logits_fn, initial_ids,
-                              params.sample_num_MRT, decode_length, vocab_size,
-                              eos_id=params.mapping["target"][params.eos],
-                              features=features)
+    ids = sampler(symbols_to_logits_fn, initial_ids, params.mrt_sample,
+                  decode_length, vocab_size,
+                  eos_id=params.mapping["target"][params.eos],
+                  features=features)
 
     # Set inputs back to the unexpanded inputs to not to confuse the Estimator
     features["source"] = inputs_old
@@ -214,21 +209,26 @@ def create_sampling_graph(model_fns, features, params, training = False):
 
     return ids
 
-def get_MRT_loss(features, params, ce, tgt_mask): 
+
+def mrt_loss(features, params, ce, tgt_mask):
     logprobs = tf.reduce_sum(ce * tgt_mask, axis=1)
-    logprobs *= params.alpha_MRT
+    logprobs *= params.mrt_alpha
     logprobs -= tf.reduce_min(logprobs)
     probs = tf.exp(-logprobs)
     probs /= tf.reduce_sum(probs)
     ave_bleu = probs * features["BLEU"]
     loss = -tf.reduce_sum(ave_bleu)
-    
+
     return loss
 
-def bleu_tensor(trans, ref, eos):
-    return tf.py_func(lambda x,y:bleu_numpy(x,y,eos,smooth=True), [trans, ref], tf.float32)
 
-def bleu_numpy(trans, refs, eos, bp="closest", smooth=False, n=4, weights=None):
+def bleu_tensor(trans, ref, eos):
+    return tf.py_func(lambda x,y: bleu_numpy(x,y,eos,smooth=True),
+                      [trans, ref], tf.float32)
+
+
+def bleu_numpy(trans, refs, eos, bp="closest", smooth=False, n=4,
+               weights=None):
     trans = trans.tolist()
     refs = refs.tolist()
     # cut sentence

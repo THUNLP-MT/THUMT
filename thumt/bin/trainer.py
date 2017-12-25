@@ -78,8 +78,8 @@ def default_parameters():
         learning_rate_decay="noam",
         learning_rate_boundaries=[0],
         learning_rate_values=[0.0],
-        keep_checkpoint_max=20,
-        keep_top_checkpoint_max=5,
+        keep_checkpoint_max=5,
+        keep_top_checkpoint_max=1,
         # Validation
         eval_steps=2000,
         eval_secs=0,
@@ -94,11 +94,11 @@ def default_parameters():
         references=[""],
         save_checkpoint_secs=0,
         save_checkpoint_steps=1000,
-        # MRT
-        MRT=False,
-        alpha_MRT=0.005,
-        sample_num_MRT=10,
-        len_ratio_MRT=1.5
+        # Minimum Risk Training
+        use_mrt=False,
+        mrt_alpha=0.005,
+        mrt_sample=10,
+        mrt_length_ratio=1.5
     )
 
     return params
@@ -303,9 +303,9 @@ def main(args):
         # Build model
         initializer = get_initializer(params)
         model = model_cls(params)
-        if params.MRT:
+        if params.use_mrt:
             assert params.batch_size == 1
-            features = mrt_utils.get_MRT(features, params, model)
+            features = mrt_utils.get_mrt_features(features, params, model)
 
         # Multi-GPU setting
         sharded_losses = parallel.parallel_model(

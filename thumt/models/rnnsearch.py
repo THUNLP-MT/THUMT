@@ -8,11 +8,9 @@ from __future__ import print_function
 import copy
 
 import tensorflow as tf
+import thumt.interface as interface
 import thumt.layers as layers
-import thumt.utils.search as search
 from thumt.utils.loss import get_loss
-
-from .model import NMTModel
 
 
 def _copy_through(time, length, output, new_output):
@@ -326,7 +324,7 @@ def model_graph(features, labels, params):
     return loss
 
 
-class RNNsearch(NMTModel):
+class RNNsearch(interface.NMTModel):
     def __init__(self, params, scope="rnnsearch"):
         super(RNNsearch, self).__init__(params=params, scope=scope)
 

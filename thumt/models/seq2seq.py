@@ -8,11 +8,9 @@ from __future__ import print_function
 import copy
 
 import tensorflow as tf
+import thumt.interface as interface
 import thumt.layers as layers
-import thumt.utils.search as search
 from thumt.utils.loss import get_loss
-
-from .model import NMTModel
 
 
 def model_graph(features, labels, params):
@@ -61,18 +59,14 @@ def model_graph(features, labels, params):
 
         cell_e = tf.nn.rnn_cell.DropoutWrapper(
             cell_e,
-            input_keep_prob=1.0 - params.dropout,
             output_keep_prob=1.0 - params.dropout,
-            state_keep_prob=1.0 - params.dropout,
             variational_recurrent=params.use_variational_dropout,
             input_size=params.embedding_size,
             dtype=tf.float32
         )
         cell_d = tf.nn.rnn_cell.DropoutWrapper(
             cell_d,
-            input_keep_prob=1.0 - params.dropout,
             output_keep_prob=1.0 - params.dropout,
-            state_keep_prob=1.0 - params.dropout,
             variational_recurrent=params.use_variational_dropout,
             input_size=params.embedding_size,
             dtype=tf.float32
@@ -134,7 +128,7 @@ def model_graph(features, labels, params):
     return loss
 
 
-class Seq2Seq(NMTModel):
+class Seq2Seq(interface.NMTModel):
     def __init__(self, params, scope="seq2seq"):
         super(Seq2Seq, self).__init__(params=params, scope=scope)
 
