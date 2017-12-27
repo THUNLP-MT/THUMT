@@ -182,31 +182,31 @@ he does not like painting at all .
 
 为了使用BPE来编码训练集，首先需要生成BPE操作文件。以下命令将会生成一个名为\verb|bpe32k|的文件，它包含32K个BPE操作。该命令同时生成两个名为\verb|vocab.src|和\verb|vocab.trg|的文件。
 \begin{everbatim}
-python subword-nmt/learn_joint_bpe_and_vocab.py 
-  --input train.src train.trg -s 32000 -o bpe32k 
+python subword-nmt/learn_joint_bpe_and_vocab.py
+  --input train.src train.trg -s 32000 -o bpe32k
   --write-vocabulary vocab.src vocab.trg
 \end{everbatim}
 
 在生成BPE操作文件以及词表以后，需要对训练集、验证集以及测试集源端进行编码：
 \begin{everbatim}
-  python subword-nmt/apply_bpe.py 
-    --vocabulary vocab.src 
-    --vocabulary-threshold 50 
+  python subword-nmt/apply_bpe.py
+    --vocabulary vocab.src
+    --vocabulary-threshold 50
     -c bpe32k < train.src > train.32k.src
   python subword-nmt/apply_bpe.py
-    --vocabulary vocab.trg 
+    --vocabulary vocab.trg
     --vocabulary-threshold 50
     -c bpe32k < train.trg > train.32k.trg
   python subword-nmt/apply_bpe.py
     --vocabulary vocab.src
     --vocabulary-threshold 50
     -c bpe32k < valid.src > valid.32k.src
-  python subword-nmt/apply_bpe.py 
-    --vocabulary vocab.trg --vocabulary-threshold 50 
+  python subword-nmt/apply_bpe.py
+    --vocabulary vocab.trg --vocabulary-threshold 50
     -c bpe32k < valid.trg > valid.32k.trg
   python subword-nmt/apply_bpe.py
-    --vocabulary vocab.src 
-    --vocabulary-threshold 50 
+    --vocabulary vocab.src
+    --vocabulary-threshold 50
     -c bpe32k < test.src > test.32k.src
 \end{everbatim}
 
@@ -219,7 +219,7 @@ sed -r 's/(@@ )|(@@ ?$)//g' < input > output
 \subsection{数据随机化}
 将训练数据随机打乱顺序对训练模型很有帮助。为此我们提供了\verb|shuffle_corpus.py|脚本对数据进行打乱，它具有以下参数：
 \begin{everbatim}
-usage: shuffle_corpus.py [-h] --corpus CORPUS [CORPUS ...] 
+usage: shuffle_corpus.py [-h] --corpus CORPUS [CORPUS ...]
                          [--suffix SUFFIX]
                          [--seed SEED]
 
@@ -319,6 +319,7 @@ optional arguments:
 \item \verb|constant_batch_size|: 是否采用固定的批量大小。如果为True，则输入数据包含\verb|batch_size|个数个句子。若为False，则输入数据中大致含有\verb|batch_size|个词。
 \item \verb|max_length|: 限制训练数据中句子的最大长度。
 \item \verb|train_steps|: 训练的总步数。
+\item \verb|update_cycle|: 参数更新的频率。该选项用于模拟多GPU的训练过程。在只有1个GPU的条件下，可以设置\verb|update_cycle=N|来获得使用$N$个GPU时的效果。
 \item \verb|save_checkpoint_steps|: 按步设置保存频率，与\verb|save_checkpoint_secs|互斥。
 \item \verb|save_checkpoint_secs|: 按秒设置保存频率，与\verb|save_checkpoint_steps|互斥。
 \item \verb|initializer|: 使用不同的初始化函数。可选值为\verb|uniform_unit_scaling|,\\ \verb|uniform|，\verb|normal|以及\verb|normal_unit_scaling|。
@@ -464,13 +465,13 @@ optional arguments:
 \subsection{运行例示}
 以下是训练Transformer模型的命令。该模型共享源端、目标端以及softmax参数，使用4块GPU进行训练：
 \begin{everbatim}
-python /PATH/TO/THUMT/thumt/bin/trainer.py 
-  --input train.tok.clean.bpe.32000.en.shuf 
-          train.tok.clean.bpe.32000.de.shuf 
-  --model transformer --output train/ 
-  --vocabulary vocab.bpe.32000 vocab.bpe.32000 
-  --validation newstest2013.tok.bpe.32000.en 
-  --references newstest2013.tok.bpe.32000.de 
+python /PATH/TO/THUMT/thumt/bin/trainer.py
+  --input train.tok.clean.bpe.32000.en.shuf
+          train.tok.clean.bpe.32000.de.shuf
+  --model transformer --output train/
+  --vocabulary vocab.bpe.32000 vocab.bpe.32000
+  --validation newstest2013.tok.bpe.32000.en
+  --references newstest2013.tok.bpe.32000.de
   --parameters=batch_size=6250,device_list=[0,1,2,3],
                eval_steps=5000,train_steps=100000,
                save_checkpoint_steps=1500,
@@ -484,12 +485,12 @@ python /PATH/TO/THUMT/thumt/scripts/checkpoint_averaging.py
 \end{everbatim}
 以下是解码Transformer模型的命令：
 \begin{everbatim}
-python /PATH/TO/THUMT/thumt/bin/translator.py 
-  --model transformer 
-  --checkpoints average 
-  --input newstest2014.tok.bpe.32000.en 
-  --vocabulary vocab.bpe.32000 vocab.bpe.32000 
-  --output output.txt 
+python /PATH/TO/THUMT/thumt/bin/translator.py
+  --model transformer
+  --checkpoints average
+  --input newstest2014.tok.bpe.32000.en
+  --vocabulary vocab.bpe.32000 vocab.bpe.32000
+  --output output.txt
 \end{everbatim}
 
 \bibliographystyle{apalike}

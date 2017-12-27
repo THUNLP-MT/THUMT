@@ -166,31 +166,31 @@ The most common approach to achieve open vocabularies is to use the Byte Pair En
 
 To encode the training corpora using BPE, you need to generate BPE operations first. The following command will create a file named \verb|bpe32k|, which contains 32k BPE operations. It also outputs two dictionaries named \verb|vocab.src| and \verb|vocab.trg|.
 \begin{everbatim}
-python subword-nmt/learn_joint_bpe_and_vocab.py 
-  --input train.src train.trg -s 32000 -o bpe32k 
+python subword-nmt/learn_joint_bpe_and_vocab.py
+  --input train.src train.trg -s 32000 -o bpe32k
   --write-vocabulary vocab.src vocab.trg
 \end{everbatim}
 
-You also need to encode the training corpora, validation set and test set using the generated BPE operations and dictionaries. 
+You also need to encode the training corpora, validation set and test set using the generated BPE operations and dictionaries.
 \begin{everbatim}
-  python subword-nmt/apply_bpe.py 
-    --vocabulary vocab.src 
-    --vocabulary-threshold 50 
+  python subword-nmt/apply_bpe.py
+    --vocabulary vocab.src
+    --vocabulary-threshold 50
     -c bpe32k < train.src > train.32k.src
   python subword-nmt/apply_bpe.py
-    --vocabulary vocab.trg 
+    --vocabulary vocab.trg
     --vocabulary-threshold 50
     -c bpe32k < train.trg > train.32k.trg
   python subword-nmt/apply_bpe.py
     --vocabulary vocab.src
     --vocabulary-threshold 50
     -c bpe32k < valid.src > valid.32k.src
-  python subword-nmt/apply_bpe.py 
-    --vocabulary vocab.trg --vocabulary-threshold 50 
+  python subword-nmt/apply_bpe.py
+    --vocabulary vocab.trg --vocabulary-threshold 50
     -c bpe32k < valid.trg > valid.32k.trg
   python subword-nmt/apply_bpe.py
-    --vocabulary vocab.src 
-    --vocabulary-threshold 50 
+    --vocabulary vocab.src
+    --vocabulary-threshold 50
     -c bpe32k < test.src > test.32k.src
 \end{everbatim}
 The original segmentation can be restored with the following command:
@@ -202,7 +202,7 @@ sed -r 's/(@@ )|(@@ ?$)//g' < input > output
 \subsection{Shuffling Corpora}
 It is helpful to shuffle training corpora first and we provide \verb|shuffle_corpus.py| script to achieve this functionality, which has the following options：
 \begin{everbatim}
-usage: shuffle_corpus.py [-h] --corpus CORPUS [CORPUS ...] 
+usage: shuffle_corpus.py [-h] --corpus CORPUS [CORPUS ...]
                          [--suffix SUFFIX]
                          [--seed SEED]
 
@@ -302,6 +302,7 @@ The optional arguments of the \verb|trainer.py| script can be omitted in a com- 
 \item \verb|constant_batch_size|: if set to true, then each batch will contains \verb|batch_size| sentences. Otherwise, each batch will contains approximately \verb|batch_size| tokens.
 \item \verb|max_length|: the maximum length of training sentences.
 \item \verb|train_steps|: the total number of steps in the training stage.
+\item \verb|update_cycle|: update the parameters every $N$ iterations. If you only have 1GPU and want to achieve the same results trained under $N$ GPUs, you can set \verb|update_cycle=N|.
 \item \verb|save_checkpoint_steps|: save the checkpoint every \verb|N| steps.
 \item \verb|save_checkpoint_secs|: save the checkpoint every \verb|N| second.
 \item \verb|initializer|: choose different initializing functions. The possible values are \verb|uniform_unit_scaling|,\\ \verb|uniform|，\verb|normal| and \verb|normal_unit_scaling|.
@@ -443,13 +444,13 @@ The meaning of arguments is shown below:
 \subsection{Examples}
 The following is the command we used to train a base Transformer model. This model shares the source, target and softmax weights. We employed 4 GPUs to accelerate training:
 \begin{everbatim}
-python /PATH/TO/THUMT/thumt/bin/trainer.py 
-  --input train.tok.clean.bpe.32000.en.shuf 
-          train.tok.clean.bpe.32000.de.shuf 
-  --model transformer --output train/ 
-  --vocabulary vocab.bpe.32000 vocab.bpe.32000 
-  --validation newstest2013.tok.bpe.32000.en 
-  --references newstest2013.tok.bpe.32000.de 
+python /PATH/TO/THUMT/thumt/bin/trainer.py
+  --input train.tok.clean.bpe.32000.en.shuf
+          train.tok.clean.bpe.32000.de.shuf
+  --model transformer --output train/
+  --vocabulary vocab.bpe.32000 vocab.bpe.32000
+  --validation newstest2013.tok.bpe.32000.en
+  --references newstest2013.tok.bpe.32000.de
   --parameters=batch_size=6250,device_list=[0,1,2,3],
                eval_steps=5000,train_steps=100000,
                save_checkpoint_steps=1500,
@@ -465,12 +466,12 @@ python /PATH/TO/THUMT/thumt/scripts/checkpoint_averaging.py
 
 Finally, we use the \verb|translator.py| to translate the test set.
 \begin{everbatim}
-python /PATH/TO/THUMT/thumt/bin/translator.py 
-  --model transformer 
-  --checkpoints average 
-  --input newstest2014.tok.bpe.32000.en 
-  --vocabulary vocab.bpe.32000 vocab.bpe.32000 
-  --output output.txt 
+python /PATH/TO/THUMT/thumt/bin/translator.py
+  --model transformer
+  --checkpoints average
+  --input newstest2014.tok.bpe.32000.en
+  --vocabulary vocab.bpe.32000 vocab.bpe.32000
+  --output output.txt
 \end{everbatim}
 
 \bibliographystyle{apalike}

@@ -16,6 +16,7 @@ import thumt.data.record as record
 import thumt.data.vocab as vocabulary
 import thumt.models as models
 import thumt.utils.hooks as hooks
+import thumt.utils.utils as utils
 import thumt.utils.mrt_utils as mrt_utils
 import thumt.utils.parallel as parallel
 import thumt.utils.search as search
@@ -68,6 +69,7 @@ def default_parameters():
         buffer_size=10000,
         constant_batch_size=True,
         device_list=[0],
+        update_cycle=1,
         initializer="uniform",
         initializer_gain=0.08,
         adam_beta1=0.9,
@@ -341,15 +343,38 @@ def main(args):
                                      beta2=params.adam_beta2,
                                      epsilon=params.adam_epsilon)
 
-        train_op = tf.contrib.layers.optimize_loss(
-            name="training",
-            loss=loss,
-            global_step=global_step,
-            learning_rate=learning_rate,
-            clip_gradients=params.clip_grad_norm or None,
-            optimizer=opt,
-            colocate_gradients_with_ops=True
-        )
+        if params.update_cycle == 1:
+            train_op = tf.contrib.layers.optimize_loss(
+                name="training",
+                loss=loss,
+                global_step=global_step,
+                learning_rate=learning_rate,
+                clip_gradients=params.clip_grad_norm or None,
+                optimizer=opt,
+                colocate_gradients_with_ops=True
+            )
+            zero_op = tf.no_op("zero_op")
+            update_op = tf.no_op("update_op")
+        else:
+            grads_and_vars = opt.compute_gradients(
+                loss, colocate_gradients_with_ops=True)
+            gradients = [item[0] for item in grads_and_vars]
+            variables = [item[1] for item in grads_and_vars]
+            variables = utils.replicate_variables(variables)
+            zero_op = utils.zero_variables(variables)
+            train_op = utils.collect_gradients(gradients, variables)
+
+            scale = 1.0 / params.update_cycle
+            gradients = utils.scale_gradients(variables, scale)
+
+            # Gradient clipping
+            if isinstance(params.clip_grad_norm or None, float):
+                gradients, _ = tf.clip_by_global_norm(gradients,
+                                                      params.clip_grad_norm)
+
+            # Update variables
+            grads_and_vars = list(zip(gradients, tf.trainable_variables()))
+            update_op = opt.apply_gradients(grads_and_vars, global_step)
 
         # Validation
         if params.validation and params.references[0]:
@@ -406,7 +431,14 @@ def main(args):
                 checkpoint_dir=params.output, hooks=train_hooks,
                 save_checkpoint_secs=None, config=config) as sess:
             while not sess.should_stop():
+                # Bypass hook calls
+                utils.session_run(sess, zero_op)
+
+                for i in range(1, params.update_cycle):
+                    utils.session_run(sess, train_op)
                 sess.run(train_op)
+
+                utils.session_run(sess, update_op)
 
 
 if __name__ == "__main__":
