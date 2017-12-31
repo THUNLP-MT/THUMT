@@ -10,7 +10,6 @@ import copy
 import tensorflow as tf
 import thumt.interface as interface
 import thumt.layers as layers
-from thumt.utils.loss import get_loss
 
 
 def model_graph(features, labels, params):
@@ -123,7 +122,7 @@ def model_graph(features, labels, params):
             maxlen=tf.shape(features["target"])[1]
         )
     )
-    loss = get_loss(features, params, ce, tgt_mask)
+    loss = tf.reduce_sum(ce * tgt_mask) / tf.reduce_sum(tgt_mask)
 
     return loss
 

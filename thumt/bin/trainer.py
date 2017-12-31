@@ -17,7 +17,6 @@ import thumt.data.vocab as vocabulary
 import thumt.models as models
 import thumt.utils.hooks as hooks
 import thumt.utils.utils as utils
-import thumt.utils.mrt_utils as mrt_utils
 import thumt.utils.parallel as parallel
 import thumt.utils.search as search
 
@@ -96,11 +95,6 @@ def default_parameters():
         references=[""],
         save_checkpoint_secs=0,
         save_checkpoint_steps=1000,
-        # Minimum Risk Training
-        use_mrt=False,
-        mrt_alpha=0.005,
-        mrt_sample=10,
-        mrt_length_ratio=1.5
     )
 
     return params
@@ -305,9 +299,6 @@ def main(args):
         # Build model
         initializer = get_initializer(params)
         model = model_cls(params)
-        if params.use_mrt:
-            assert params.batch_size == 1
-            features = mrt_utils.get_mrt_features(features, params, model)
 
         # Multi-GPU setting
         sharded_losses = parallel.parallel_model(
@@ -354,15 +345,16 @@ def main(args):
                 colocate_gradients_with_ops=True
             )
             zero_op = tf.no_op("zero_op")
-            update_op = tf.no_op("update_op")
+            collect_op = tf.no_op("collect_op")
         else:
             grads_and_vars = opt.compute_gradients(
                 loss, colocate_gradients_with_ops=True)
             gradients = [item[0] for item in grads_and_vars]
             variables = [item[1] for item in grads_and_vars]
+
             variables = utils.replicate_variables(variables)
             zero_op = utils.zero_variables(variables)
-            train_op = utils.collect_gradients(gradients, variables)
+            collect_op = utils.collect_gradients(gradients, variables)
 
             scale = 1.0 / params.update_cycle
             gradients = utils.scale_gradients(variables, scale)
@@ -374,7 +366,9 @@ def main(args):
 
             # Update variables
             grads_and_vars = list(zip(gradients, tf.trainable_variables()))
-            update_op = opt.apply_gradients(grads_and_vars, global_step)
+
+            with tf.control_dependencies([collect_op]):
+                train_op = opt.apply_gradients(grads_and_vars, global_step)
 
         # Validation
         if params.validation and params.references[0]:
@@ -433,12 +427,9 @@ def main(args):
             while not sess.should_stop():
                 # Bypass hook calls
                 utils.session_run(sess, zero_op)
-
                 for i in range(1, params.update_cycle):
-                    utils.session_run(sess, train_op)
+                    utils.session_run(sess, collect_op)
                 sess.run(train_op)
-
-                utils.session_run(sess, update_op)
 
 
 if __name__ == "__main__":
