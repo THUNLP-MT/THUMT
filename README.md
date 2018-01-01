@@ -25,10 +25,10 @@ THUMT has currently two main implementations:
 
 The following table summarizes the features of two implementations:
 
-| Implementation | Model | Criterion | LRP |
-| :------------: | :---: | :--------------: | :----------------: |
-| Theano       |  RNNsearch | MLE, MRT, SST | RNNsearch |   
-| TensorFlow   |  Seq2Seq, RNNsearch, Transformer | MLE| n/a |
+| Implementation | Model | Criterion | Optimizer | LRP |
+| :------------: | :---: | :--------------: | :--------------: | :----------------: |
+| Theano       |  RNNsearch | MLE, MRT, SST | SGD, AdaDelta, Adam | RNNsearch |   
+| TensorFlow   |  Seq2Seq, RNNsearch, Transformer | MLE| Adam |n/a |
 
 We recommend using [THUMT-TensorFlow](https://github.com/thumt/THUMT), which delivers better translation performance than [THUMT-Theano](https://github.com/thumt/THUMT/tree/theano). We will keep adding new features to [THUMT-TensorFlow](https://github.com/thumt/THUMT).
 

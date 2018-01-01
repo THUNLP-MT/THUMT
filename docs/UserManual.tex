@@ -49,11 +49,15 @@ Criterion               & MRT & $\surd$ & $\times$ \\
 LRP        & RNNsearch & $\surd$ & $\times$ \\
         & Transformer & $\times$ & $\times$ \\
 \hline
+ & SGD & $\surd$ & $\times$ \\
+Optimizer & AdaDelta & $\surd$ & $\times$ \\
+ & Adam & $\surd$ & $\surd$ \\
+\hline
 \end{tabular}
 \caption{Two implementations of THUMT.} \label{table:1:implementation}
 \end{table}
 
-We recommend using THUMT-TensorFlow, which delivers better translation performance than THUMT-Theano. We will keep adding new features to THUMT-TensorFlow. This document is the user manual for THUMT-TensorFlow. For simplicity, we will refer to THUMT-TesnorFlow as THUMT in the following sections.
+We recommend using THUMT-TensorFlow, which delivers better translation performance than THUMT-Theano. We will keep adding new features to THUMT-TensorFlow. This document is the user manual for THUMT-TensorFlow. For simplicity, we refer to THUMT-TesnorFlow as THUMT below.
 
 
 \section{Installation}
