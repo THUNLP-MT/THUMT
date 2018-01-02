@@ -1,2 +1,2 @@
 # coding=utf-8
-# Copyright 2017 The THUMT Authors
+# Copyright 2018 The THUMT Authors
