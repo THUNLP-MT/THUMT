@@ -45,13 +45,13 @@ Model           & RNNsearch & $\surd$ & $\surd$ \\
 Criterion               & MRT & $\surd$ & $\times$ \\
                & SST & $\surd$ & $\times$ \\
 \hline
- & Seq2Seq & $\times$ & $\times$ \\
-LRP        & RNNsearch & $\surd$ & $\times$ \\
-        & Transformer & $\times$ & $\times$ \\
-\hline
  & SGD & $\surd$ & $\times$ \\
 Optimizer & AdaDelta & $\surd$ & $\times$ \\
  & Adam & $\surd$ & $\surd$ \\
+\hline
+  & Seq2Seq & $\times$ & $\times$ \\
+LRP        & RNNsearch & $\surd$ & $\times$ \\
+        & Transformer & $\times$ & $\times$ \\
 \hline
 \end{tabular}
 \caption{Two implementations of THUMT.} \label{table:1:implementation}
@@ -117,7 +117,7 @@ In this user manual, we take the preprocessed German-English dataset of the WMT 
 $ gunzip corpus.tc.de.gz corpus.tc.en.gz
 \end{everbatim}
 \\
-The resulting files \verb|corpus.tc.de| and \verb|corpus.tc.en| serve as the training set, which contains 5,852,458 pairs of sentences. Note that the German and English sentences are preprocessed using tokenization and true casing. 
+The resulting files \verb|corpus.tc.de| and \verb|corpus.tc.en| serve as the training set, which contains 5,852,458 pairs of sentences. Note that the German and English sentences are tokenized and truecased. 
 
 Unpack the file \verb|dev.tgz| using the following command:
 \\
@@ -149,7 +149,7 @@ vocab.de vocab.en
 Then, the \verb|apply_bpe.py| script runs to encode the training set using the generated BPE operations and dictionaries.
 \\
 \begin{everbatim}
-$  python subword-nmt/apply_bpe.py --vocabulary vocab.de 
+$ python subword-nmt/apply_bpe.py --vocabulary vocab.de 
 --vocabulary-threshold 50 -c bpe32k < corpus.tc.de > 
 corpus.tc.32k.de
 $ python subword-nmt/apply_bpe.py --vocabulary vocab.en
@@ -191,9 +191,9 @@ The resulting files \verb|corpus.tc.32k.de.shuf| and \verb|corpus.tc.32k.en.shuf
 We need to generate vocabulary from the shuffled training set. This can be done by running the \verb|build_vocab.py| script:
 \\
 \begin{everbatim}
-$python THUMT/thumt/scripts/build_vocab.py corpus.tc.32k.de.shuf 
+$ python THUMT/thumt/scripts/build_vocab.py corpus.tc.32k.de.shuf 
 vocab.32k.de
-$python THUMT/thumt/scripts/build_vocab.py corpus.tc.32k.en.shuf
+$ python THUMT/thumt/scripts/build_vocab.py corpus.tc.32k.en.shuf
 vocab.32k.en
 \end{everbatim}
 \\
@@ -207,7 +207,7 @@ We recommend using the Transformer model that delivers the best translation perf
 The command for training a Transformer model is given by
 \\
 \begin{everbatim}
-$python THUMT/thumt/bin/trainer.py --input corpus.tc.32k.de.shuf
+$ python THUMT/thumt/bin/trainer.py --input corpus.tc.32k.de.shuf
 corpus.tc.32k.en.shuf --vocabulary vocab.32k.de.txt 
 vocab.32k.en.txt --model transformer --validation 
 newstest2014.tc.32k.de --references newstest2014.tc.32k.en 
@@ -218,14 +218,14 @@ Note that we set the \verb|batch_size| to 6,250 words instead of 6,250 sentences
 
 ``\verb|device_list=[0]|'' suggests that \verb|gpu0| is used to train the model. THUMT supports to train NMT models on multiple GPUs. If both \verb|gpu0| and \verb|gpu1| are available, simply set ``\verb|device_list=[0,1]|''. You may use the \verb|nvidia-smi| command to find unused GPUs.
 
-By setting ``\verb|train_steps=200000|'', the training process will terminate at iteration 200,000. During the training, the \verb|trainer.py| script creates a \verb|train| folder to store intermediate models called {\em checkpoints}, which will be evaluated on the validation set periodically. Only a small number of checkpoints that achieves highest BLEU scores on the validation set will be saved in the \verb|train/eval| folder. This folder will be used in decoding.
+By setting ``\verb|train_steps=200000|'', the training process will terminate at iteration 200,000. During the training, the \verb|trainer.py| script creates a \verb|train| folder to store intermediate models called {\em checkpoints}, which will be evaluated on the validation set periodically. Only a small number of checkpoints that achieves highest BLEU scores on the validation set will be saved in the \verb|train/eval| folder. This folder will be used in decoding. Please refer to Appendix \ref{appendix:1} for more details about the parameters of the \verb|trainer.py| script.
 
 \subsubsection{RNNsearch}
 
 The command for training an RNNsearch model is given by
 \\
 \begin{everbatim}
-$python THUMT/thumt/bin/trainer.py --input corpus.tc.32k.de.shuf
+$ python THUMT/thumt/bin/trainer.py --input corpus.tc.32k.de.shuf
 corpus.tc.32k.en.shuf --vocabulary vocab.32k.de.txt 
 vocab.32k.en.txt --model rnnsearch --validation 
 newstest2014.tc.32k.de --references newstest2014.tc.32k.en 
@@ -239,7 +239,7 @@ Note that we set the \verb|batch_size| to 128 sentences instead of 128 words. By
 The command for training a Seq2Seq model is given by
 \\
 \begin{everbatim}
-$python THUMT/thumt/bin/trainer.py --input corpus.tc.32k.de.shuf
+$ python THUMT/thumt/bin/trainer.py --input corpus.tc.32k.de.shuf
 corpus.tc.32k.en.shuf --vocabulary vocab.32k.de.txt 
 vocab.32k.en.txt --model seq2seq --validation 
 newstest2014.tc.32k.de --references newstest2014.tc.32k.en 
@@ -262,7 +262,7 @@ $ python THUMT/thumt/bin/translator.py --models transformer
 The commands for using RNNsearch and Seq2Seq models are similar except for the \verb|--models| argument. The translation file output by the \verb|translator.py| is \verb|newstest2015.trans|, which needs to be restored to the normal tokenization using the following command:
 \\
 \begin{everbatim}
-sed -r 's/(@@ )|(@@ ?$)//g' < newstest2015.trans > 
+$ sed -r 's/(@@ )|(@@ ?$)//g' < newstest2015.trans > 
 newstest2015.trans.norm
 \end{everbatim}
 \\
@@ -274,20 +274,23 @@ $ multi-bleu.perl -lc newstest2015.tc.en
 < newstest2015.trans.norm > evalResult
 \end{everbatim}
 \\
-The resulting \verb|evalResult| stores the calculated BLEU scores.
+The resulting \verb|evalResult| stores the calculated BLEU score.
 
 \section{FAQ}
+
+\subsection{Does THUMT support multiple GPUs?}
+Yes. THUMT supports to train NMT models on multiple GPUs. You may use the \verb|nvidia-smi| command to find unused GPUs. If both \verb|gpu0| and \verb|gpu1| are available, simply set ``\verb|device_list=[0,1]|'' when running the \verb|trainer.py| script. 
 
 \subsection{Does THUMT support model averaging?}
 
 Yes. THUMT uses the \verb|checkpoint_averaging.py| script to average checkpoints generated during training to generate a better model. The script is located in the \verb|THUMT/thumt/scripts| folder. Simply run the following command:
 \\
 \begin{everbatim}
-$python THUMT/thumt/scripts/checkpoint_averaging.py --path train
+$ python THUMT/thumt/scripts/checkpoint_averaging.py --path train
 --checkpoints 5 --output averaged
 \end{everbatim}
 \\
-By default, the \verb|train| folder saves the last 20 checkpoints. The above command averages 5 of them and saves the averaged model in the \verb|averaged| folder. You may change the number of checkpoints by modifying the \verb|--checkpoints| argument.
+By default, the \verb|train| folder saves the last 20 checkpoints. The above command averages the last 5 checkpoints and saves the averaged model in the \verb|averaged| folder. You may change the number of checkpoints by modifying the \verb|--checkpoints| argument.
 
 \subsection{Does THUMT support model ensemble?}
 
@@ -307,7 +310,7 @@ During training, latest checkpoints are stored in the \verb|train| folder. The n
  
 Checkpoints with top BLEU scores on the validation set are stored in the \verb|train/eval| folder. The number is specified by the \verb|keep_top_checkpoint_max| parameter in the \verb|trainer.py| script. Its default value is 5.
 
-The size of a checkpoint depends is usually about 1GB. As a result, by default, the \verb|train| folder that stores intermediate files often takes up 30GB of disk space. To save disk space, simply set the two parameters to smaller values. For example, we can set \verb|keep_checkpoint_max| to 5 to keep only 5 checkpoints in the \verb|train| folder and \verb|keep_top_checkpoint_max| to 1 to keep only 1 checkpoint in the \verb|train/eval| folder. Note that \verb|keep_checkpoint_max| also determines the maximum number of checkpoints that can be used for model averaging.
+The size of a checkpoint is usually about 1GB. As a result, by default, the \verb|train| folder that stores intermediate files often takes up 30GB of disk space. To save disk space, simply set the two parameters to smaller values. For example, we can set \verb|keep_checkpoint_max| to 5 to keep only 5 checkpoints in the \verb|train| folder and \verb|keep_top_checkpoint_max| to 1 to keep only 1 checkpoint in the \verb|train/eval| folder. Note that \verb|keep_checkpoint_max| also determines the maximum number of checkpoints that can be used for model averaging.
 
 An example command is shown below:
 \\
@@ -322,7 +325,7 @@ keep_checkpoint_max=5,keep_top_checkpoint_max=1
 
 \appendix
 
-\section{Parameters of The trainer.py Script}
+\section{Parameters of The trainer.py Script} \label{appendix:1}
 The parameters of the \verb|trainer.py| scripts is specified by a string containing comma-separated \verb|name=value| pairs. Here, we list important parameters in detail.
 
 \subsection{General Parameters}
