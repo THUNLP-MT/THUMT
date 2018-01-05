@@ -294,7 +294,7 @@ By default, the \verb|train| folder saves the last 20 checkpoints. The above com
 
 \subsection{Does THUMT support model ensemble?}
 
-Yes. Suppose THUMT runs for four times on the same training data. Due to random initialization, the four trained models are different. The following command can be used to ensemble the four models located in four separated folders:
+Yes. Suppose THUMT runs four times on the same training data. Due to random initialization, the four trained models are different. The following command can be used to ensemble the four models located in four separated folders (e.g., \verb|run1|, \verb|run2|, \verb|run3|, and \verb|run4|):
 \\
 \begin{everbatim}
 $ python THUMT/thumt/bin/translator.py --models transformer
@@ -322,6 +322,77 @@ newstest2014.tc.32k.de --references newstest2014.tc.32k.en
 --parameters=batch_size=6250,device_list=[0],train_steps=200000,
 keep_checkpoint_max=5,keep_top_checkpoint_max=1
 \end{everbatim}
+
+\subsection{How to display the BLEU scores on the validation set?}
+It often takes several days to run THUMT on large training data. To prevent the command from being aborted if you log out or exit the shell, we recommend prefixing a command with \verb|nohup| and appending a ``\verb|&|'' symbol at the end of the command. For example,
+\\
+\begin{everbatim}
+$ nohup python THUMT/thumt/bin/trainer.py --input 
+corpus.tc.32k.de.shuf corpus.tc.32k.en.shuf --vocabulary 
+vocab.32k.de.txt vocab.32k.en.txt --model transformer 
+--validation newstest2014.tc.32k.de --references 
+newstest2014.tc.32k.en --parameters=batch_size=6250,
+device_list=[0],train_steps=200000,eval_step=5000 &
+\end{everbatim}
+\\
+Output that would normally go to the terminal goes to a file called \verb|nohup.out|. Since the parameter \verb|eval_step| is set to 5,000, the intermediate model will be validated for every 5,000 steps. Here is an example output for validation:
+\\
+\begin{everbatim}
+INFO:tensorflow:Validating model at step 5000
+INFO:tensorflow:Restoring parameters from train/model.ckpt-5000
+INFO:tensorflow:BLEU at step 5000: 0.283899
+INFO:tensorflow:Copying train/model.ckpt-5000 to train/eval/
+model.ckpt-5000
+INFO:tensorflow:Best score at step 5000: 0.283899
+\end{everbatim}
+\\
+
+Therefore, you may run the following command to obtain all BLEU scores on the validation set:
+\\
+\begin{everbatim}
+$ grep 'BLEU at step' nohup.out
+INFO:tensorflow:BLEU at step 5000: 0.215739
+INFO:tensorflow:BLEU at step 10000: 0.274530
+INFO:tensorflow:BLEU at step 15000: 0.295066
+INFO:tensorflow:BLEU at step 20000: 0.310839
+INFO:tensorflow:BLEU at step 25000: 0.314701
+INFO:tensorflow:BLEU at step 30000: 0.324403
+INFO:tensorflow:BLEU at step 35000: 0.326532
+INFO:tensorflow:BLEU at step 40000: 0.327123
+INFO:tensorflow:BLEU at step 45000: 0.331918
+INFO:tensorflow:BLEU at step 50000: 0.335435
+INFO:tensorflow:BLEU at step 55000: 0.333007
+INFO:tensorflow:BLEU at step 60000: 0.337739
+INFO:tensorflow:BLEU at step 65000: 0.342414
+INFO:tensorflow:BLEU at step 70000: 0.343452
+INFO:tensorflow:BLEU at step 75000: 0.344703
+INFO:tensorflow:BLEU at step 80000: 0.342933
+INFO:tensorflow:BLEU at step 85000: 0.345208
+INFO:tensorflow:BLEU at step 90000: 0.345368
+INFO:tensorflow:BLEU at step 95000: 0.345791
+INFO:tensorflow:BLEU at step 100000: 0.348987
+INFO:tensorflow:BLEU at step 105000: 0.349707
+INFO:tensorflow:BLEU at step 110000: 0.346962
+INFO:tensorflow:BLEU at step 115000: 0.348421
+INFO:tensorflow:BLEU at step 120000: 0.349368
+INFO:tensorflow:BLEU at step 125000: 0.347384
+INFO:tensorflow:BLEU at step 130000: 0.351331
+INFO:tensorflow:BLEU at step 135000: 0.350806
+INFO:tensorflow:BLEU at step 140000: 0.351425
+INFO:tensorflow:BLEU at step 145000: 0.350630
+INFO:tensorflow:BLEU at step 150000: 0.349003
+INFO:tensorflow:BLEU at step 155000: 0.353210
+INFO:tensorflow:BLEU at step 160000: 0.352494
+INFO:tensorflow:BLEU at step 165000: 0.353489
+INFO:tensorflow:BLEU at step 170000: 0.351439
+INFO:tensorflow:BLEU at step 175000: 0.352664
+INFO:tensorflow:BLEU at step 180000: 0.352319
+INFO:tensorflow:BLEU at step 185000: 0.353467
+INFO:tensorflow:BLEU at step 190000: 0.354170
+INFO:tensorflow:BLEU at step 195000: 0.352935
+INFO:tensorflow:BLEU at step 200000: 0.353187
+\end{everbatim}
+\\
 
 \appendix
 
