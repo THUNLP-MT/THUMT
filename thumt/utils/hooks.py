@@ -5,6 +5,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import datetime
 import operator
 import os
 
@@ -24,6 +25,15 @@ def _get_saver():
         raise RuntimeError("More than one item in collection")
 
     return savers[0]
+
+
+def _save_log(filename, result):
+    metric, global_step, score = result
+
+    with open(filename, "a") as fd:
+        time = datetime.datetime.now()
+        msg = "%s: %s at step %d: %f\n" % (time, metric, global_step, score)
+        fd.write(msg)
 
 
 def _read_checkpoint_def(filename):
@@ -189,6 +199,7 @@ class EvaluationHook(tf.train.SessionRunHook):
         self._session_config = session_config
         self._save_path = os.path.join(base_dir, "eval")
         self._record_name = os.path.join(self._save_path, "record")
+        self._log_name = os.path.join(self._save_path, "log")
         self._eval_fn = eval_fn
         self._eval_input_fn = eval_input_fn
         self._eval_decode_fn = eval_decode_fn
@@ -250,6 +261,8 @@ class EvaluationHook(tf.train.SessionRunHook):
                                   self._session_config)
                 tf.logging.info("%s at step %d: %f" %
                                 (self._metric, global_step, score))
+
+                _save_log(self._log_name, (self._metric, global_step, score))
 
                 checkpoint_filename = os.path.join(self._base_dir,
                                                    "checkpoint")
