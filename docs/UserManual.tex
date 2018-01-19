@@ -255,8 +255,8 @@ The command for translating the test set using the trained Transformer model is 
 \begin{everbatim}
 $ python THUMT/thumt/bin/translator.py --models transformer
 --input newstest2015.tc.32k.de --output newstest2015.trans
---vocabulary vocab.32k.de vocab.32k.en --checkpoints train/eval 
---parameters=device_list[0]
+--vocabulary vocab.32k.de.txt vocab.32k.en.txt --checkpoints train/eval 
+--parameters=device_list=[0]
 \end{everbatim}
 \\
 The commands for using RNNsearch and Seq2Seq models are similar except for the \verb|--models| argument. The translation file output by the \verb|translator.py| is \verb|newstest2015.trans|, which needs to be restored to the normal tokenization using the following command:
@@ -301,7 +301,7 @@ $ python THUMT/thumt/bin/translator.py --models transformer
 --input newstest2015.tc.32k.de --output newstest2015.trans
 --vocabulary vocab.32k.de vocab.32k.en
 --checkpoints run1/train run2/train run3/train run4/train
---parameters=device_list[0]
+--parameters=device_list=[0]
 \end{everbatim}
 
 \subsection{How to save disk space during training?}
