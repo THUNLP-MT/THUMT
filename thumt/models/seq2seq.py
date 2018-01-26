@@ -12,7 +12,7 @@ import thumt.interface as interface
 import thumt.layers as layers
 
 
-def model_graph(features, labels, params):
+def model_graph(features, mode, params):
     src_vocab_size = len(params.vocabulary["source"])
     tgt_vocab_size = len(params.vocabulary["target"])
 
@@ -97,7 +97,7 @@ def model_graph(features, labels, params):
     if params.dropout:
         outputs = tf.nn.dropout(outputs, 1.0 - params.dropout)
 
-    if labels is None:
+    if mode == "infer":
         # Prediction
         logits = layers.nn.linear(outputs[:, -1, :], tgt_vocab_size, True,
                                   scope="softmax")
@@ -107,6 +107,7 @@ def model_graph(features, labels, params):
     # Prediction
     logits = layers.nn.linear(outputs, tgt_vocab_size, True, scope="softmax")
     logits = tf.reshape(logits, [-1, tgt_vocab_size])
+    labels = features["target"]
 
     ce = layers.nn.smoothed_softmax_cross_entropy_with_logits(
         logits=logits,
@@ -122,6 +123,10 @@ def model_graph(features, labels, params):
             maxlen=tf.shape(features["target"])[1]
         )
     )
+
+    if mode == "eval":
+        return -tf.reduce_sum(ce * tgt_mask, axis=1)
+
     loss = tf.reduce_sum(ce * tgt_mask) / tf.reduce_sum(tgt_mask)
 
     return loss
@@ -132,12 +137,12 @@ class Seq2Seq(interface.NMTModel):
         super(Seq2Seq, self).__init__(params=params, scope=scope)
 
     def get_training_func(self, initializer):
-        def training_fn(features, params=None):
+        def training_fn(features, params=None, reuse=None):
             if params is None:
                 params = self.parameters
             with tf.variable_scope(self._scope, initializer=initializer,
-                                   reuse=tf.AUTO_REUSE):
-                loss = model_graph(features, features["target"], params)
+                                   reuse=reuse):
+                loss = model_graph(features, "train", params)
                 return loss
 
         return training_fn
@@ -153,9 +158,9 @@ class Seq2Seq(interface.NMTModel):
             params.label_smoothing = 0.0
 
             with tf.variable_scope(self._scope):
-                logits = model_graph(features, None, params)
+                score = model_graph(features, "eval", params)
 
-            return logits
+            return score
 
         return evaluation_fn
 
@@ -170,7 +175,7 @@ class Seq2Seq(interface.NMTModel):
             params.label_smoothing = 0.0
 
             with tf.variable_scope(self._scope):
-                logits = model_graph(features, None, params)
+                logits = model_graph(features, "infer", params)
 
             return logits
 

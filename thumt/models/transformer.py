@@ -166,7 +166,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, dtype=None,
         return outputs
 
 
-def model_graph(features, labels, mode, params):
+def model_graph(features, mode, params):
     hidden_size = params.hidden_size
 
     src_seq = features["source"]
@@ -221,6 +221,7 @@ def model_graph(features, labels, mode, params):
     # [batch, length, channel] => [batch * length, vocab_size]
     decoder_output = tf.reshape(decoder_output, [-1, hidden_size])
     logits = tf.matmul(decoder_output, weights, False, True)
+    labels = features["target"]
 
     # label smoothing
     ce = layers.nn.smoothed_softmax_cross_entropy_with_logits(
@@ -231,6 +232,10 @@ def model_graph(features, labels, mode, params):
     )
 
     ce = tf.reshape(ce, tf.shape(tgt_seq))
+
+    if mode == "eval":
+        return -tf.reduce_sum(ce * tgt_mask, axis=1)
+
     loss = tf.reduce_sum(ce * tgt_mask) / tf.reduce_sum(tgt_mask)
 
     return loss
@@ -241,13 +246,12 @@ class Transformer(interface.NMTModel):
         super(Transformer, self).__init__(params=params, scope=scope)
 
     def get_training_func(self, initializer):
-        def training_fn(features, params=None):
+        def training_fn(features, params=None, reuse=None):
             if params is None:
                 params = self.parameters
             with tf.variable_scope(self._scope, initializer=initializer,
-                                   reuse=tf.AUTO_REUSE):
-                loss = model_graph(features, features["target"],
-                                   "train", params)
+                                   reuse=reuse):
+                loss = model_graph(features, "train", params)
                 return loss
 
         return training_fn
@@ -265,9 +269,9 @@ class Transformer(interface.NMTModel):
             params.label_smoothing = 0.0
 
             with tf.variable_scope(self._scope):
-                logits = model_graph(features, None, "infer", params)
+                score = model_graph(features, "eval", params)
 
-            return logits
+            return score
 
         return evaluation_fn
 
@@ -284,7 +288,7 @@ class Transformer(interface.NMTModel):
             params.label_smoothing = 0.0
 
             with tf.variable_scope(self._scope):
-                logits = model_graph(features, None, "infer", params)
+                logits = model_graph(features, "infer", params)
 
             return logits
 

@@ -296,7 +296,7 @@ def get_inference_input(inputs, params):
     )
 
     dataset = dataset.padded_batch(
-        params.decode_batch_size,
+        min(params.decode_batch_size, len(inputs)),
         {"source": [tf.Dimension(None)], "source_length": []},
         {"source": params.pad, "source_length": 0}
     )

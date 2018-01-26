@@ -30,7 +30,7 @@ def replicate_variables(variables, device=None):
     for var in variables:
         device = device or var.device
         with tf.device(device):
-            name = "replicate/" + var.name.split(":")[0]
+            name = "replica/" + var.name.split(":")[0]
             new_vars.append(tf.Variable(tf.zeros(var.shape.as_list()),
                                         name=name, trainable=False))
 

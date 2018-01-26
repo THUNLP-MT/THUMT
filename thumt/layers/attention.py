@@ -49,22 +49,24 @@ def add_timing_signal(x, min_timescale=1.0, max_timescale=1.0e4, name=None):
 
 def split_heads(inputs, num_heads, name=None):
     """ Split heads
-    :param inputs: A tensor with shape [batch, length, channels]
+    :param inputs: A tensor with shape [batch, ..., channels]
     :param num_heads: An integer
     :param name: An optional string
-    :returns: A tensor with shape [batch, heads, length, channels / heads]
+    :returns: A tensor with shape [batch, heads, ..., channels / heads]
     """
 
     with tf.name_scope(name, default_name="split_heads", values=[inputs]):
         x = inputs
         n = num_heads
         old_shape = x.get_shape().dims
+        ndims = x.shape.ndims
 
         last = old_shape[-1]
         new_shape = old_shape[:-1] + [n] + [last // n if last else None]
         ret = tf.reshape(x, tf.concat([tf.shape(x)[:-1], [n, -1]], 0))
         ret.set_shape(new_shape)
-        return tf.transpose(ret, [0, 2, 1, 3])
+        perm = [0, ndims - 1] + [i for i in range(1, ndims - 1)] + [ndims]
+        return tf.transpose(ret, perm)
 
 
 def combine_heads(inputs, name=None):
@@ -250,8 +252,8 @@ def multiplicative_attention(queries, keys, values, bias, keep_prob=None,
     :param name: the name of this operation
 
     :returns: A dict with the following keys:
-        weights: A tensor with shape [batch, length_q]
-        outputs: A tensor with shape [batch, length_q, depth_v]
+        weights: A tensor with shape [batch, heads, length_q, length_kv]
+        outputs: A tensor with shape [batch, heads, length_q, depth_v]
     """
 
     with tf.name_scope(name, default_name="multiplicative_attention",
@@ -278,7 +280,7 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
     """ Multi-head scaled-dot-product attention with input/output
         transformations.
 
-    :param queries: A tensor with shape [batch, length_q, depth_q] if
+    :param queries: A tensor with shape [batch, length_q, depth_q]
     :param memories: A tensor with shape [batch, length_m, depth_m]
     :param bias: A tensor (see attention_bias)
     :param num_heads: An integer dividing key_size and value_size
@@ -291,7 +293,7 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
     :param scope: An optional string
 
     :returns: A dict with the following keys:
-        weights: A tensor with shape [batch, length_q]
+        weights: A tensor with shape [batch, heads, length_q, length_kv]
         outputs: A tensor with shape [batch, length_q, depth_v]
     """
 

@@ -136,6 +136,7 @@ def _evaluate(eval_fn, input_fn, decode_fn, path, config):
         features = input_fn()
         refs = features["references"]
         predictions = eval_fn(features)
+        predictions = predictions[0][:, 0, :]
         results = {
             "predictions": predictions,
             "references": refs

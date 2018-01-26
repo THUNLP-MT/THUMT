@@ -39,6 +39,8 @@ def parse_args():
                         help="Name of the model")
     parser.add_argument("--parameters", type=str,
                         help="Additional hyper parameters")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Enable verbose output")
 
     return parser.parse_args()
 
@@ -155,7 +157,7 @@ def set_variables(var_list, value_dict, prefix):
             var_name = "/".join([prefix] + list(name.split("/")[1:]))
 
             if var.name[:-2] == var_name:
-                tf.logging.info("restoring %s -> %s" % (name, var.name))
+                tf.logging.debug("restoring %s -> %s" % (name, var.name))
                 with tf.device("/cpu:0"):
                     op = tf.assign(var, value_dict[name])
                     ops.append(op)
@@ -188,7 +190,7 @@ def main(args):
 
         # Load checkpoints
         for i, checkpoint in enumerate(args.checkpoints):
-            print("Loading %s" % checkpoint)
+            tf.logging.info("Loading %s" % checkpoint)
             var_list = tf.train.list_variables(checkpoint)
             values = {}
             reader = tf.train.load_checkpoint(checkpoint)
@@ -259,28 +261,47 @@ def main(args):
         # Convert to plain text
         vocab = params.vocabulary["target"]
         outputs = []
+        scores = []
 
         for result in results:
-            outputs.append(result.tolist())
+            outputs.append(result[0].tolist())
+            scores.append(result[1].tolist())
 
         outputs = list(itertools.chain(*outputs))
+        scores = list(itertools.chain(*scores))
 
+        restored_inputs = []
         restored_outputs = []
+        restored_scores = []
 
         for index in range(len(sorted_inputs)):
+            restored_inputs.append(sorted_inputs[sorted_keys[index]])
             restored_outputs.append(outputs[sorted_keys[index]])
+            restored_scores.append(scores[sorted_keys[index]])
 
         # Write to file
         with open(args.output, "w") as outfile:
-            for output in restored_outputs:
-                decoded = []
-                for idx in output:
-                    if idx == params.mapping["target"][params.eos]:
-                        break
-                    decoded.append(vocab[idx])
+            count = 0
+            for outputs, scores in zip(restored_outputs, restored_scores):
+                for output, score in zip(outputs, scores):
+                    decoded = []
+                    for idx in output:
+                        if idx == params.mapping["target"][params.eos]:
+                            break
+                        decoded.append(vocab[idx])
 
-                decoded = " ".join(decoded)
-                outfile.write("%s\n" % decoded)
+                    decoded = " ".join(decoded)
+
+                    if not args.verbose:
+                        outfile.write("%s\n" % decoded)
+                        break
+                    else:
+                        pattern = "%d ||| %s ||| %s ||| %f\n"
+                        source = restored_inputs[count]
+                        values = (count, source, decoded, score)
+                        outfile.write(pattern % values)
+
+                count += 1
 
 
 if __name__ == "__main__":

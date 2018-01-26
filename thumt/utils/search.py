@@ -6,6 +6,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import copy
 import tensorflow as tf
 
 
@@ -428,6 +429,8 @@ def beam_search(symbols_to_logits_fn, initial_ids, beam_size, decode_length,
 
 
 def create_inference_graph(model_fns, features, params):
+    features = copy.copy(features)
+
     if not isinstance(model_fns, (list, tuple)):
         model_fns = [model_fns]
 
@@ -453,9 +456,6 @@ def create_inference_graph(model_fns, features, params):
     # Prepend <bos> symbol
     bos_id = params.mapping["target"][params.bos]
     initial_ids = tf.fill([batch_size], tf.constant(bos_id, dtype=tf.int32))
-
-    inputs_old = features["source"]
-    inputs_length_old = features["source_length"]
 
     # Expand the inputs in to the beam size
     # [batch, length] => [batch, beam_size, length]
@@ -487,19 +487,20 @@ def create_inference_graph(model_fns, features, params):
                               eos_id=params.mapping["target"][params.eos],
                               lp_constant=params.decode_constant)
 
-    # Set inputs back to the unexpanded inputs to not to confuse the Estimator
-    features["source"] = inputs_old
-    features["source_length"] = inputs_length_old
+    mask = tf.not_equal(ids, 0)
+    output_length = tf.reduce_sum(tf.to_float(mask), axis=-1)
+
+    # shape: [batch, beam_size]
+    normalized_scores = scores / output_length
+
+    if params.decode_normalize:
+        scores, indices = tf.nn.top_k(normalized_scores, k=top_beams)
+        # shape of ids: [batch, beam_size, max_length]
+        # shape of coordinates: [batch, beam_size, 2]
+        batch_pos = compute_batch_indices(batch_size, beam_size)
+        coordinates = tf.stack([batch_pos, indices], axis=2)
+        ids = tf.gather_nd(ids, coordinates)
 
     # Return `top_beams` decoding
     # (also remove initial id from the beam search)
-    if not params.decode_normalize:
-        if top_beams == 1:
-            return ids[:, 0, 1:]
-        else:
-            return ids[:, :top_beams, 1:]
-    else:
-        if top_beams == 1:
-            return ids[:, 0, 1:], scores[:, 0]
-        else:
-            return ids[:, :top_beams, 1:], scores[:, :top_beams]
+    return ids[:, :top_beams, 1:], scores[:, :top_beams]

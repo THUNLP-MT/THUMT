@@ -95,6 +95,7 @@ def default_parameters():
         references=[""],
         save_checkpoint_secs=0,
         save_checkpoint_steps=1000,
+        save_all=True
     )
 
     return params
@@ -379,6 +380,7 @@ def main(args):
             eval_input_fn = None
 
         # Add hooks
+        save_vars = tf.trainable_variables() + [global_step]
         train_hooks = [
             tf.train.StopAtStepHook(last_step=params.train_steps),
             tf.train.NanTensorHook(loss),
@@ -396,6 +398,7 @@ def main(args):
                 save_secs=params.save_checkpoint_secs or None,
                 save_steps=params.save_checkpoint_steps or None,
                 saver=tf.train.Saver(
+                    var_list=save_vars if not params.save_all else None,
                     max_to_keep=params.keep_checkpoint_max,
                     sharded=False
                 )
@@ -408,7 +411,7 @@ def main(args):
             train_hooks.append(
                 hooks.EvaluationHook(
                     lambda f: search.create_inference_graph(
-                        model.get_evaluation_func(), f, params
+                        model.get_inference_func(), f, params
                     ),
                     lambda: eval_input_fn(eval_inputs, params),
                     lambda x: decode_target_ids(x, params),
