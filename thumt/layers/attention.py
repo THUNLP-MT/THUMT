@@ -14,7 +14,7 @@ from thumt.layers.nn import linear
 def add_timing_signal(x, min_timescale=1.0, max_timescale=1.0e4, name=None):
     """
     This function adds a bunch of sinusoids of different frequencies to a
-    Tensor. See paper: Attention is all you need
+    Tensor. See paper: `Attention is all you need'
 
     :param x: A tensor with shape [batch, length, channels]
     :param min_timescale: A floating point number
@@ -90,11 +90,11 @@ def combine_heads(inputs, name=None):
 
 def attention_bias(inputs, mode, inf=-1e9, name=None):
     """ A bias tensor used in attention mechanism
-    :param inputs:
-    :param mode:
-    :param inf:
-    :param name:
-    :returns:
+    :param inputs: A tensor
+    :param mode: one of "causal", "masking", "proximal" or "distance"
+    :param inf: A floating value
+    :param name: optional string
+    :returns: A 4D tensor with shape [batch, heads, queries, memories]
     """
 
     with tf.name_scope(name, default_name="attention_bias", values=[inputs]):
@@ -276,7 +276,7 @@ def multiplicative_attention(queries, keys, values, bias, keep_prob=None,
 
 def multihead_attention(queries, memories, bias, num_heads, key_size,
                         value_size, output_size, keep_prob=None, output=True,
-                        dtype=None, scope=None):
+                        state=None, dtype=None, scope=None):
     """ Multi-head scaled-dot-product attention with input/output
         transformations.
 
@@ -289,6 +289,7 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
     :param output_size: An integer
     :param keep_prob: A floating point number in (0, 1]
     :param output: Whether to use output transformation
+    :param state: An optional dictionary used for incremental decoding
     :param dtype: An optional instance of tf.DType
     :param scope: An optional string
 
@@ -307,12 +308,20 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
 
     with tf.variable_scope(scope, default_name="multihead_attention",
                            values=[queries, memories], dtype=dtype):
+        next_state = {}
+
         if memories is None:
             # self attention
             size = key_size * 2 + value_size
             combined = linear(queries, size, True, True, scope="qkv_transform")
             q, k, v = tf.split(combined, [key_size, key_size, value_size],
                                axis=-1)
+
+            if state is not None:
+                k = tf.concat([state["key"], k], axis=1)
+                v = tf.concat([state["value"], v], axis=1)
+                next_state["key"] = k
+                next_state["value"] = v
         else:
             q = linear(queries, key_size, True, True, scope="q_transform")
             combined = linear(memories, key_size + value_size, True,
@@ -341,4 +350,9 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         else:
             outputs = x
 
-        return {"weights": weights, "outputs": outputs}
+        outputs = {"weights": weights, "outputs": outputs}
+
+        if state is not None:
+            outputs["state"] = next_state
+
+        return outputs

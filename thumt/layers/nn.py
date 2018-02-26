@@ -108,9 +108,8 @@ def layer_norm(inputs, epsilon=1e-6, dtype=None, scope=None):
         offset = tf.get_variable("offset", shape=[channel_size],
                                  initializer=tf.zeros_initializer())
 
-        mean = tf.reduce_mean(inputs, axis=-1, keep_dims=True)
-        variance = tf.reduce_mean(tf.square(inputs - mean), axis=-1,
-                                  keep_dims=True)
+        mean = tf.reduce_mean(inputs, -1, True)
+        variance = tf.reduce_mean(tf.square(inputs - mean), -1, True)
 
         norm_inputs = (inputs - mean) * tf.rsqrt(variance + epsilon)
 

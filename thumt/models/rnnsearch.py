@@ -289,7 +289,7 @@ def model_graph(features, mode, params):
         logits = layers.nn.linear(readout, tgt_vocab_size, True, False,
                                   scope="softmax")
 
-        return logits
+        return tf.nn.log_softmax(logits)
 
     maxhid = layers.nn.maxout(maxout_features, maxout_size, params.maxnum,
                               concat=False)
@@ -320,7 +320,7 @@ def model_graph(features, mode, params):
         )
     )
 
-    if mode =="eval":
+    if mode == "eval":
         return -tf.reduce_sum(ce * tgt_mask, axis=1)
 
     loss = tf.reduce_sum(ce * tgt_mask) / tf.reduce_sum(tgt_mask)
@@ -329,6 +329,7 @@ def model_graph(features, mode, params):
 
 
 class RNNsearch(interface.NMTModel):
+
     def __init__(self, params, scope="rnnsearch"):
         super(RNNsearch, self).__init__(params=params, scope=scope)
 
@@ -349,6 +350,7 @@ class RNNsearch(interface.NMTModel):
                 params = copy.copy(self.parameters)
             else:
                 params = copy.copy(params)
+
             params.dropout = 0.0
             params.use_variational_dropout = False
             params.label_smoothing = 0.0
@@ -366,14 +368,15 @@ class RNNsearch(interface.NMTModel):
                 params = copy.copy(self.parameters)
             else:
                 params = copy.copy(params)
+
             params.dropout = 0.0
             params.use_variational_dropout = False
             params.label_smoothing = 0.0
 
             with tf.variable_scope(self._scope):
-                logits = model_graph(features, "infer", params)
+                log_prob = model_graph(features, "infer", params)
 
-            return logits
+            return log_prob
 
         return inference_fn
 

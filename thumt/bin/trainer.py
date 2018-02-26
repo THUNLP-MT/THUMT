@@ -11,14 +11,16 @@ import os
 
 import numpy as np
 import tensorflow as tf
+import thumt.data.cache as cache
 import thumt.data.dataset as dataset
 import thumt.data.record as record
 import thumt.data.vocab as vocabulary
 import thumt.models as models
 import thumt.utils.hooks as hooks
-import thumt.utils.utils as utils
+import thumt.utils.inference as inference
+import thumt.utils.optimize as optimize
 import thumt.utils.parallel as parallel
-import thumt.utils.search as search
+import thumt.utils.utils as utils
 
 
 def parse_args(args=None):
@@ -59,28 +61,29 @@ def default_parameters():
         vocab=["", ""],
         # Default training hyper parameters
         num_threads=6,
-        batch_size=128,
+        batch_size=4096,
         max_length=256,
         length_multiplier=1,
         mantissa_bits=2,
         warmup_steps=4000,
         train_steps=100000,
         buffer_size=10000,
-        constant_batch_size=True,
+        constant_batch_size=False,
         device_list=[0],
         update_cycle=1,
-        initializer="uniform",
-        initializer_gain=0.08,
+        initializer="uniform_unit_scaling",
+        initializer_gain=1.0,
+        optimizer="Adam",
         adam_beta1=0.9,
         adam_beta2=0.999,
         adam_epsilon=1e-8,
         clip_grad_norm=5.0,
         learning_rate=1.0,
-        learning_rate_decay="noam",
+        learning_rate_decay="linear_warmup_rsqrt_decay",
         learning_rate_boundaries=[0],
         learning_rate_values=[0.0],
-        keep_checkpoint_max=5,
-        keep_top_checkpoint_max=1,
+        keep_checkpoint_max=20,
+        keep_top_checkpoint_max=5,
         # Validation
         eval_steps=2000,
         eval_secs=0,
@@ -89,13 +92,11 @@ def default_parameters():
         beam_size=4,
         decode_alpha=0.6,
         decode_length=50,
-        decode_constant=5.0,
-        decode_normalize=False,
         validation="",
         references=[""],
         save_checkpoint_secs=0,
         save_checkpoint_steps=1000,
-        save_all=True
+        only_save_trainable=True
     )
 
     return params
@@ -215,7 +216,7 @@ def get_initializer(params):
 
 
 def get_learning_rate_decay(learning_rate, global_step, params):
-    if params.learning_rate_decay == "noam":
+    if params.learning_rate_decay in ["linear_warmup_rsqrt_decay", "noam"]:
         step = tf.to_float(global_step)
         warmup_steps = tf.to_float(params.warmup_steps)
         multiplier = params.hidden_size ** -0.5
@@ -297,6 +298,9 @@ def main(args):
                 os.path.join(params.record, "*train*"), "train", params
             )
 
+        features, init_op = cache.cache_features(features,
+                                                 params.update_cycle)
+
         # Build model
         initializer = get_initializer(params)
         model = model_cls(params)
@@ -330,46 +334,20 @@ def main(args):
         tf.summary.scalar("learning_rate", learning_rate)
 
         # Create optimizer
-        opt = tf.train.AdamOptimizer(learning_rate,
-                                     beta1=params.adam_beta1,
-                                     beta2=params.adam_beta2,
-                                     epsilon=params.adam_epsilon)
-
-        if params.update_cycle == 1:
-            train_op = tf.contrib.layers.optimize_loss(
-                name="training",
-                loss=loss,
-                global_step=global_step,
-                learning_rate=learning_rate,
-                clip_gradients=params.clip_grad_norm or None,
-                optimizer=opt,
-                colocate_gradients_with_ops=True
-            )
-            zero_op = tf.no_op("zero_op")
-            collect_op = tf.no_op("collect_op")
+        if optimizer == "Adam":
+            opt = tf.train.AdamOptimizer(learning_rate,
+                                         beta1=params.adam_beta1,
+                                         beta2=params.adam_beta2,
+                                         epsilon=params.adam_epsilon)
+        elif optimizer == "LazyAdam":
+            opt = tf.contrib.opt.LazyAdamOptimizer(learning_rate,
+                                                   beta1=params.adam_beta1,
+                                                   beta2=params.adam_beta2,
+                                                   epsilon=params.adam_epsilon)
         else:
-            grads_and_vars = opt.compute_gradients(
-                loss, colocate_gradients_with_ops=True)
-            gradients = [item[0] for item in grads_and_vars]
-            variables = [item[1] for item in grads_and_vars]
+            raise RuntimeError("Optimizer %s not supported" % optimizer)
 
-            variables = utils.replicate_variables(variables)
-            zero_op = utils.zero_variables(variables)
-            collect_op = utils.collect_gradients(gradients, variables)
-
-            scale = 1.0 / params.update_cycle
-            gradients = utils.scale_gradients(variables, scale)
-
-            # Gradient clipping
-            if isinstance(params.clip_grad_norm or None, float):
-                gradients, _ = tf.clip_by_global_norm(gradients,
-                                                      params.clip_grad_norm)
-
-            # Update variables
-            grads_and_vars = list(zip(gradients, tf.trainable_variables()))
-
-            with tf.control_dependencies([collect_op]):
-                train_op = opt.apply_gradients(grads_and_vars, global_step)
+        loss, ops = optimize.create_train_op(loss, opt, global_step, params)
 
         # Validation
         if params.validation and params.references[0]:
@@ -388,8 +366,6 @@ def main(args):
                 {
                     "step": global_step,
                     "loss": loss,
-                    "source": tf.shape(features["source"]),
-                    "target": tf.shape(features["target"])
                 },
                 every_n_iter=1
             ),
@@ -398,7 +374,7 @@ def main(args):
                 save_secs=params.save_checkpoint_secs or None,
                 save_steps=params.save_checkpoint_steps or None,
                 saver=tf.train.Saver(
-                    var_list=save_vars if not params.save_all else None,
+                    var_list=save_vars if params.only_save_trainable else None,
                     max_to_keep=params.keep_checkpoint_max,
                     sharded=False
                 )
@@ -410,8 +386,8 @@ def main(args):
         if eval_input_fn is not None:
             train_hooks.append(
                 hooks.EvaluationHook(
-                    lambda f: search.create_inference_graph(
-                        model.get_inference_func(), f, params
+                    lambda f: inference.create_inference_graph(
+                        [model.get_inference_func()], f, params
                     ),
                     lambda: eval_input_fn(eval_inputs, params),
                     lambda x: decode_target_ids(x, params),
@@ -429,10 +405,11 @@ def main(args):
                 save_checkpoint_secs=None, config=config) as sess:
             while not sess.should_stop():
                 # Bypass hook calls
-                utils.session_run(sess, zero_op)
-                for i in range(1, params.update_cycle):
-                    utils.session_run(sess, collect_op)
-                sess.run(train_op)
+                utils.session_run(sess, [init_op, ops["zero_op"]])
+                for i in range(params.update_cycle):
+                    utils.session_run(sess, ops["collect_op"])
+                utils.session_run(sess, ops["scale_op"])
+                sess.run(ops["train_op"])
 
 
 if __name__ == "__main__":

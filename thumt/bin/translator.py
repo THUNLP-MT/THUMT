@@ -15,7 +15,8 @@ import tensorflow as tf
 import thumt.data.dataset as dataset
 import thumt.data.vocab as vocabulary
 import thumt.models as models
-import thumt.utils.search as search
+import thumt.utils.inference as inference
+import thumt.utils.parallel as parallel
 
 
 def parse_args():
@@ -92,6 +93,9 @@ def merge_parameters(params1, params2):
 
 
 def import_params(model_dir, model_name, params):
+    if model_name.startswith("experimental_"):
+        model_name = model_name[13:]
+
     model_dir = os.path.abspath(model_dir)
     m_name = os.path.join(model_dir, model_name + ".json")
 
@@ -166,6 +170,29 @@ def set_variables(var_list, value_dict, prefix):
     return ops
 
 
+def shard_features(features, placeholders, predictions):
+    num_shards = len(placeholders)
+    feed_dict = {}
+    n = 0
+
+    for name in features:
+        feat = features[name]
+        batch = feat.shape[0]
+
+        if batch < num_shards:
+            feed_dict[placeholders[0][name]] = feat
+            n = 1
+        else:
+            shard_size = (batch + num_shards - 1) // num_shards
+
+            for i in range(num_shards):
+                shard_feat = feat[i * shard_size:(i + 1) * shard_size]
+                feed_dict[placeholders[i][name]] = shard_feat
+                n = num_shards
+
+    return predictions[:n], feed_dict
+
+
 def main(args):
     tf.logging.set_verbosity(tf.logging.INFO)
     # Load configs
@@ -221,9 +248,24 @@ def main(args):
         sorted_keys, sorted_inputs = dataset.sort_input_file(args.input)
         # Build input queue
         features = dataset.get_inference_input(sorted_inputs, params)
-        predictions = search.create_inference_graph(model_fns, features,
-                                                    params)
+        # Create placeholders
+        placeholders = []
 
+        for i in range(len(params.device_list)):
+            placeholders.append({
+                "source": tf.placeholder(tf.int32, [None, None],
+                                         "source_%d" % i),
+                "source_length": tf.placeholder(tf.int32, [None],
+                                                "source_length_%d" % i)
+            })
+
+        # A list of outputs
+        predictions = parallel.data_parallelism(
+            params.device_list,
+            lambda f: inference.create_inference_graph(model_fns, f, params),
+            placeholders)
+
+        # Create assign ops
         assign_ops = []
 
         all_var_list = tf.trainable_variables()
@@ -241,22 +283,24 @@ def main(args):
             assign_ops.extend(ops)
 
         assign_op = tf.group(*assign_ops)
-
-        sess_creator = tf.train.ChiefSessionCreator(
-            config=session_config(params)
-        )
-
         results = []
 
         # Create session
-        with tf.train.MonitoredSession(session_creator=sess_creator) as sess:
+        with tf.Session(config=session_config(params)) as sess:
             # Restore variables
             sess.run(assign_op)
+            sess.run(tf.tables_initializer())
 
-            while not sess.should_stop():
-                results.append(sess.run(predictions))
-                message = "Finished batch %d" % len(results)
-                tf.logging.log(tf.logging.INFO, message)
+            while True:
+                try:
+                    feats = sess.run(features)
+                    op, feed_dict = shard_features(feats, placeholders,
+                                                   predictions)
+                    results.append(sess.run(predictions, feed_dict=feed_dict))
+                    message = "Finished batch %d" % len(results)
+                    tf.logging.log(tf.logging.INFO, message)
+                except tf.errors.OutOfRangeError:
+                    break
 
         # Convert to plain text
         vocab = params.vocabulary["target"]
@@ -264,8 +308,10 @@ def main(args):
         scores = []
 
         for result in results:
-            outputs.append(result[0].tolist())
-            scores.append(result[1].tolist())
+            for item in result[0]:
+                outputs.append(item.tolist())
+            for item in result[1]:
+                scores.append(item.tolist())
 
         outputs = list(itertools.chain(*outputs))
         scores = list(itertools.chain(*scores))

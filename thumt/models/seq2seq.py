@@ -102,7 +102,7 @@ def model_graph(features, mode, params):
         logits = layers.nn.linear(outputs[:, -1, :], tgt_vocab_size, True,
                                   scope="softmax")
 
-        return logits
+        return tf.nn.log_softmax(logits)
 
     # Prediction
     logits = layers.nn.linear(outputs, tgt_vocab_size, True, scope="softmax")
@@ -133,6 +133,7 @@ def model_graph(features, mode, params):
 
 
 class Seq2Seq(interface.NMTModel):
+
     def __init__(self, params, scope="seq2seq"):
         super(Seq2Seq, self).__init__(params=params, scope=scope)
 

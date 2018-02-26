@@ -89,7 +89,7 @@ Entering the \verb|THUMT| folder, you may find two folders (\verb|thumt|, \verb|
 \end{enumerate}
 
 \subsubsection{Step 2: Modifying Environment Variables}
-We highly recommend running THUMT on GPU servers. Suppose THUMT runs on NVIDIA GPUs with \href{https://developer.nvidia.com/cuda-toolkit}{the CUDA toolkit} v8.0 installed. Users need to set environment variables to enable the GPU support: 
+We highly recommend running THUMT on GPU servers. Suppose THUMT runs on NVIDIA GPUs with \href{https://developer.nvidia.com/cuda-toolkit}{the CUDA toolkit} v8.0 installed. Users need to set environment variables to enable the GPU support:
 \\
 \begin{everbatim}
 $ export PATH=/usr/local/cuda/bin:$PATH
@@ -97,7 +97,7 @@ $ export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 $ export PYTHONPATH=/PATH/TO/THUMT:$PYTHONPATH
 \end{everbatim}
 \\
-To set these environment variable permanently for all future bash sessions, users can simply add the above three lines to the \verb|.bashrc| file in your \verb|$HOME| directory, where ``\verb|/PATH/TO/THUMT|'' is the path to the \verb|THUMT| folder. 
+To set these environment variable permanently for all future bash sessions, users can simply add the above three lines to the \verb|.bashrc| file in your \verb|$HOME| directory, where ``\verb|/PATH/TO/THUMT|'' is the path to the \verb|THUMT| folder.
 
 \section{User Guide}
 
@@ -117,7 +117,7 @@ In this user manual, we take the preprocessed German-English dataset of the WMT 
 $ gunzip corpus.tc.de.gz corpus.tc.en.gz
 \end{everbatim}
 \\
-The resulting files \verb|corpus.tc.de| and \verb|corpus.tc.en| serve as the training set, which contains 5,852,458 pairs of sentences. Note that the German and English sentences are tokenized and truecased. 
+The resulting files \verb|corpus.tc.de| and \verb|corpus.tc.en| serve as the training set, which contains 5,852,458 pairs of sentences. Note that the German and English sentences are tokenized and truecased.
 
 Unpack the file \verb|dev.tgz| using the following command:
 \\
@@ -127,7 +127,7 @@ $ tar xvfz dev.tgz
 \\
 In the \verb|dev| folder,  \verb|newstest2014.tc.de| and \verb|newstest2014.tc.en| serve as the validation set, which contains 3,003 pairs of sentences. The test set we use is \verb|newstest2015.tc.de| and \verb|newstest2015.tc.en|, which consists of 2,169 pairs of sentences. Note that both the validation and test sets use single references since there is only one gold-standard English translation for each German sentence.
 
-\subsubsection{Running BPE}	
+\subsubsection{Running BPE}
 
 For efficiency reasons, only a fraction of the full vocabulary can be used in neural machine translation systems. The most widely used  approach for addressing the open vocabulary problem is to use the Byte Pair Encoding (BPE) \citep{Sennrich:16}. We recommend using BPE for THUMT.
 
@@ -141,19 +141,19 @@ $ git clone https://github.com/rsennrich/subword-nmt.git
 To encode the training corpora using BPE, you need to generate BPE operations first. The following command will create a file named \verb|bpe32k|, which contains 32k BPE operations. It also outputs two dictionaries named \verb|vocab.de| and \verb|vocab.en|.
 \\
 \begin{everbatim}
-$ python subword-nmt/learn_joint_bpe_and_vocab.py --input 
-corpus.tc.de corpus.tc.en -s 32000 -o bpe32k --write-vocabulary 
+$ python subword-nmt/learn_joint_bpe_and_vocab.py --input
+corpus.tc.de corpus.tc.en -s 32000 -o bpe32k --write-vocabulary
 vocab.de vocab.en
 \end{everbatim}
 \\
 Then, the \verb|apply_bpe.py| script runs to encode the training set using the generated BPE operations and dictionaries.
 \\
 \begin{everbatim}
-$ python subword-nmt/apply_bpe.py --vocabulary vocab.de 
---vocabulary-threshold 50 -c bpe32k < corpus.tc.de > 
+$ python subword-nmt/apply_bpe.py --vocabulary vocab.de
+--vocabulary-threshold 50 -c bpe32k < corpus.tc.de >
 corpus.tc.32k.de
 $ python subword-nmt/apply_bpe.py --vocabulary vocab.en
---vocabulary-threshold 50 -c bpe32k < corpus.tc.en > 
+--vocabulary-threshold 50 -c bpe32k < corpus.tc.en >
 corpus.tc.32k.en
 \end{everbatim}
 \\
@@ -162,10 +162,10 @@ The validation set also needs to be processed using the \verb|apply_bpe.py| scri
 \\
 \begin{everbatim}
 $ python subword-nmt/apply_bpe.py --vocabulary vocab.de
---vocabulary-threshold 50 -c bpe32k < newstest2014.tc.de > 
+--vocabulary-threshold 50 -c bpe32k < newstest2014.tc.de >
 newstest2014.tc.32k.de
 $ python subword-nmt/apply_bpe.py --vocabulary vocab.en
---vocabulary-threshold 50 -c bpe32k < newstest2014.tc.en > 
+--vocabulary-threshold 50 -c bpe32k < newstest2014.tc.en >
 newstest2014.tc.32k.en
 \end{everbatim}
 \\
@@ -173,7 +173,7 @@ Finally, the source side of the test side is processed as well.
 \\
 \begin{everbatim}
 $ python subword-nmt/apply_bpe.py --vocabulary vocab.de
---vocabulary-threshold 50 -c bpe32k < newstest2015.tc.de > 
+--vocabulary-threshold 50 -c bpe32k < newstest2015.tc.de >
 newstest2015.tc.32k.de
 \end{everbatim}
 
@@ -181,17 +181,17 @@ newstest2015.tc.32k.de
 The next step is to shuffle the training set, which proves to be helpful for improving the translation quality. Simply run the following command:
 \\
 \begin{everbatim}
-$ python THUMT/thumt/scripts/shuffle_corpus.py --corpus 
+$ python THUMT/thumt/scripts/shuffle_corpus.py --corpus
 corpus.tc.32k.de corpus.tc.32k.en --suffix shuf
 \end{everbatim}
 \\
-The resulting files \verb|corpus.tc.32k.de.shuf| and \verb|corpus.tc.32k.en.shuf| rearrange the sentence pairs randomly. 
+The resulting files \verb|corpus.tc.32k.de.shuf| and \verb|corpus.tc.32k.en.shuf| rearrange the sentence pairs randomly.
 
 \subsubsection{Generating Vocabularies}
 We need to generate vocabulary from the shuffled training set. This can be done by running the \verb|build_vocab.py| script:
 \\
 \begin{everbatim}
-$ python THUMT/thumt/scripts/build_vocab.py corpus.tc.32k.de.shuf 
+$ python THUMT/thumt/scripts/build_vocab.py corpus.tc.32k.de.shuf
 vocab.32k.de
 $ python THUMT/thumt/scripts/build_vocab.py corpus.tc.32k.en.shuf
 vocab.32k.en
@@ -202,19 +202,19 @@ The resulting files \verb|vocab.32k.de.txt| and \verb|vocab.32k.en.txt| are fina
 \subsection{Training}
 
 \subsubsection{Transformer}
-We recommend using the Transformer model that delivers the best translation performance among all the three models supported by THUMT. 
+We recommend using the Transformer model that delivers the best translation performance among all the three models supported by THUMT.
 
 The command for training a Transformer model is given by
 \\
 \begin{everbatim}
 $ python THUMT/thumt/bin/trainer.py --input corpus.tc.32k.de.shuf
-corpus.tc.32k.en.shuf --vocabulary vocab.32k.de.txt 
-vocab.32k.en.txt --model transformer --validation 
-newstest2014.tc.32k.de --references newstest2014.tc.32k.en 
+corpus.tc.32k.en.shuf --vocabulary vocab.32k.de.txt
+vocab.32k.en.txt --model transformer --validation
+newstest2014.tc.32k.de --references newstest2014.tc.32k.en
 --parameters=batch_size=6250,device_list=[0],train_steps=200000
 \end{everbatim}
 \\
-Note that we set the \verb|batch_size| to 6,250 words instead of 6,250 sentences. By default, the batch size for the Transformer model is defined in terms of word number rather than sentence number in THUMT. 
+Note that we set the \verb|batch_size| to 6,250 words instead of 6,250 sentences. By default, the batch size for the Transformer model is defined in terms of word number rather than sentence number in THUMT.
 
 ``\verb|device_list=[0]|'' suggests that \verb|gpu0| is used to train the model. THUMT supports to train NMT models on multiple GPUs. If both \verb|gpu0| and \verb|gpu1| are available, simply set ``\verb|device_list=[0,1]|''. You may use the \verb|nvidia-smi| command to find unused GPUs.
 
@@ -226,9 +226,9 @@ The command for training an RNNsearch model is given by
 \\
 \begin{everbatim}
 $ python THUMT/thumt/bin/trainer.py --input corpus.tc.32k.de.shuf
-corpus.tc.32k.en.shuf --vocabulary vocab.32k.de.txt 
-vocab.32k.en.txt --model rnnsearch --validation 
-newstest2014.tc.32k.de --references newstest2014.tc.32k.en 
+corpus.tc.32k.en.shuf --vocabulary vocab.32k.de.txt
+vocab.32k.en.txt --model rnnsearch --validation
+newstest2014.tc.32k.de --references newstest2014.tc.32k.en
 --parameters=batch_size=128,device_list=[0],train_steps=200000
 \end{everbatim}
 \\
@@ -240,9 +240,9 @@ The command for training a Seq2Seq model is given by
 \\
 \begin{everbatim}
 $ python THUMT/thumt/bin/trainer.py --input corpus.tc.32k.de.shuf
-corpus.tc.32k.en.shuf --vocabulary vocab.32k.de.txt 
-vocab.32k.en.txt --model seq2seq --validation 
-newstest2014.tc.32k.de --references newstest2014.tc.32k.en 
+corpus.tc.32k.en.shuf --vocabulary vocab.32k.de.txt
+vocab.32k.en.txt --model seq2seq --validation
+newstest2014.tc.32k.de --references newstest2014.tc.32k.en
 --parameters=batch_size=128,device_list=[0],train_steps=200000
 \end{everbatim}
 \\
@@ -255,14 +255,14 @@ The command for translating the test set using the trained Transformer model is 
 \begin{everbatim}
 $ python THUMT/thumt/bin/translator.py --models transformer
 --input newstest2015.tc.32k.de --output newstest2015.trans
---vocabulary vocab.32k.de.txt vocab.32k.en.txt --checkpoints train/eval 
+--vocabulary vocab.32k.de.txt vocab.32k.en.txt --checkpoints train/eval
 --parameters=device_list=[0]
 \end{everbatim}
 \\
 The commands for using RNNsearch and Seq2Seq models are similar except for the \verb|--models| argument. The translation file output by the \verb|translator.py| is \verb|newstest2015.trans|, which needs to be restored to the normal tokenization using the following command:
 \\
 \begin{everbatim}
-$ sed -r 's/(@@ )|(@@ ?$)//g' < newstest2015.trans > 
+$ sed -r 's/(@@ )|(@@ ?$)//g' < newstest2015.trans >
 newstest2015.trans.norm
 \end{everbatim}
 \\
@@ -270,7 +270,7 @@ newstest2015.trans.norm
 Finally, BLEU scores \citep{Papineni:02} can be calculated using the \verb|multi-bleu.perl|\footnote{\href{https://github.com/moses-smt/mosesdecoder/blob/master/scripts/generic/multi-bleu.perl}{https://github.com/moses-smt/mosesdecoder/blob/master/scripts/generic/multi-bleu.perl}}:
 \\
 \begin{everbatim}
-$ multi-bleu.perl -lc newstest2015.tc.en 
+$ multi-bleu.perl -lc newstest2015.tc.en
 < newstest2015.trans.norm > evalResult
 \end{everbatim}
 \\
@@ -279,7 +279,7 @@ The resulting \verb|evalResult| stores the calculated BLEU score.
 \section{FAQ}
 
 \subsection{Does THUMT support multiple GPUs?}
-Yes. THUMT supports to train NMT models on multiple GPUs. You may use the \verb|nvidia-smi| command to find unused GPUs. If both \verb|gpu0| and \verb|gpu1| are available, simply set ``\verb|device_list=[0,1]|'' when running the \verb|trainer.py| script. 
+Yes. THUMT supports to train NMT models on multiple GPUs. You may use the \verb|nvidia-smi| command to find unused GPUs. If both \verb|gpu0| and \verb|gpu1| are available, simply set ``\verb|device_list=[0,1]|'' when running the \verb|trainer.py| script.
 
 \subsection{Does THUMT support model averaging?}
 
@@ -307,7 +307,7 @@ $ python THUMT/thumt/bin/translator.py --models transformer
 \subsection{How to save disk space during training?}
 
 During training, latest checkpoints are stored in the \verb|train| folder. The number of checkpoints is specified by the \verb|keep_checkpoint_max| parameter in the \verb|trainer.py| script. Its default value is 20.
- 
+
 Checkpoints with top BLEU scores on the validation set are stored in the \verb|train/eval| folder. The number is specified by the \verb|keep_top_checkpoint_max| parameter in the \verb|trainer.py| script. Its default value is 5.
 
 The size of a checkpoint is usually about 1GB. As a result, by default, the \verb|train| folder that stores intermediate files often takes up 30GB of disk space. To save disk space, simply set the two parameters to smaller values. For example, we can set \verb|keep_checkpoint_max| to 5 to keep only 5 checkpoints in the \verb|train| folder and \verb|keep_top_checkpoint_max| to 1 to keep only 1 checkpoint in the \verb|train/eval| folder. Note that \verb|keep_checkpoint_max| also determines the maximum number of checkpoints that can be used for model averaging.
@@ -316,9 +316,9 @@ An example command is shown below:
 \\
 \begin{everbatim}
 $python THUMT/thumt/bin/trainer.py --input corpus.tc.32k.de.shuf
-corpus.tc.32k.en.shuf --vocabulary vocab.32k.de.txt 
-vocab.32k.en.txt --model transformer --validation 
-newstest2014.tc.32k.de --references newstest2014.tc.32k.en 
+corpus.tc.32k.en.shuf --vocabulary vocab.32k.de.txt
+vocab.32k.en.txt --model transformer --validation
+newstest2014.tc.32k.de --references newstest2014.tc.32k.en
 --parameters=batch_size=6250,device_list=[0],train_steps=200000,
 keep_checkpoint_max=5,keep_top_checkpoint_max=1
 \end{everbatim}
@@ -327,10 +327,10 @@ keep_checkpoint_max=5,keep_top_checkpoint_max=1
 It often takes several days to run THUMT on large training data. To prevent the command from being aborted if you log out or exit the shell, we recommend prefixing a command with \verb|nohup| and appending a ``\verb|&|'' symbol at the end of the command. For example,
 \\
 \begin{everbatim}
-$ nohup python THUMT/thumt/bin/trainer.py --input 
-corpus.tc.32k.de.shuf corpus.tc.32k.en.shuf --vocabulary 
-vocab.32k.de.txt vocab.32k.en.txt --model transformer 
---validation newstest2014.tc.32k.de --references 
+$ nohup python THUMT/thumt/bin/trainer.py --input
+corpus.tc.32k.de.shuf corpus.tc.32k.en.shuf --vocabulary
+vocab.32k.de.txt vocab.32k.en.txt --model transformer
+--validation newstest2014.tc.32k.de --references
 newstest2014.tc.32k.en --parameters=batch_size=6250,
 device_list=[0],train_steps=200000,eval_step=5000 &
 \end{everbatim}
@@ -403,17 +403,17 @@ The parameters of the \verb|trainer.py| scripts is specified by a string contain
 \begin{enumerate}
 \item \verb|num_threads|: the number of threads used in data processing. The default value is 6.
 \item \verb|buffer_size|: the buffer size used in data processing. The default value is 10,000.
-\item \verb|batch_size|: the batch size used in the training stage. The default value is 128.
+\item \verb|batch_size|: the batch size used in the training stage. The default value is 4096.
 \item \verb|constant_batch_size|: a boolean value that specifies whether the number of sentences is treated as \verb|batch_size|. The default value is \verb|true|. If it is set to \verb|true|, \verb|batch_size| is defined as the number of sentences. This usually happens for training Seq2Seq and RNNsearch models. If it is set to \verb|false|, \verb|batch_size| is defined as the number of tokens, which is more appropriate for training the Transformer model.
 \item \verb|max_length|: the maximum length of a sentence in the training set. The default value is 256.
 \item \verb|train_steps|: the total number of steps in the training stage. The default value is 100,000.
 \item \verb|update_cycle|:  the number of iterations for updating model parameters. The default value is 1. If you have only 1 GPU and want to obtain the same translation performance with using 4 GPUs, simply set this parameter to 4. Note that the training time will also be prolonged.
 \item \verb|save_checkpoint_steps|: the number of steps for saving a checkpoint periodically.  The default value is 1,000.
 %\item \verb|save_checkpoint_secs|: the number of seconds for saving a checkpoint periodically. The default value is 0.
-\item \verb|initializer|: choose how to initialize model parameters. Possible values are \verb|uniform|, \verb|normal|, \verb|uniform_unit_scaling|, and \verb|normal_unit_scaling|. The default value is \verb|uniform|.
-\item \verb|initializer_gain|: set the parameter of the initializer. The default value is 0.08.
+\item \verb|initializer|: choose how to initialize model parameters. Possible values are \verb|uniform|, \verb|normal|, \verb|uniform_unit_scaling|, and \verb|normal_unit_scaling|. The default value is \verb|uniform_unit_scaling|.
+\item \verb|initializer_gain|: set the parameter of the initializer. The default value is 1.0.
 \item \verb|learning_rate|: set the learning rate. The default value is 1.0.
-\item \verb|learning_rate_decay|: set learning rate decay function. Possible values are \verb|noam|, \verb|piecewise_constant|, and \verb|none|. The default value is \verb|noam|.
+\item \verb|learning_rate_decay|: set learning rate decay function. Possible values are \verb|linear_warmup_rsqrt_decay|, \verb|piecewise_constant|, and \verb|none|. The default value is \verb|linear_warmup_rsqrt_decay|.
 \item \verb|learning_rate_boundaries|: learning rate boundaries. The default value is $[0]$.
 \item \verb|learning_rate_values|: learning rate values. The default value is $[0.0]$.
 \item \verb|keep_checkpoint_max|: the maximum number of checkpoints to keep during training. The default value is 20.
@@ -425,6 +425,7 @@ The parameters of the \verb|trainer.py| scripts is specified by a string contain
 \item \verb|decode_alpha|: the length penalty term in the beam search \citep{Wu:16}. The default value is 0.6.
 \item \verb|decode_length|: the maximum length ratio of a translation. The default value is 50.
 \item \verb|device_list|: the list of GPUs to be used in training. Use the \verb|nvidia-smi| command to find unused GPUs. If the unused GPUs are \verb|gpu0| and \verb|gpu1|, set this parameter as \verb|device_list=[0,1]|.
+\item \verb|only_save_trainable|: choose which variables to keep. If it is set to \verb|true|, then only trainable variables will be saved in checkpoint. Otherwise, all variables (including variables created by optimizers) will be saved. Set this value to \verb|true| if you want to save disk space.
 \end{enumerate}
 
 \subsection{Parameters for Seq2Seq}
