@@ -259,18 +259,13 @@ def get_evaluation_input(inputs, params):
         iterator = dataset.make_one_shot_iterator()
         features = iterator.get_next()
 
+        # Covert source symbols to ids
         src_table = tf.contrib.lookup.index_table_from_tensor(
             tf.constant(params.vocabulary["source"]),
             default_value=params.mapping["source"][params.unk]
         )
-        tgt_table = tf.contrib.lookup.index_table_from_tensor(
-            tf.constant(params.vocabulary["target"]),
-            default_value=params.mapping["target"][params.unk]
-        )
+
         features["source"] = src_table.lookup(features["source"])
-        features["references"] = tuple(
-            tgt_table.lookup(item) for item in features["references"]
-        )
 
     return features
 

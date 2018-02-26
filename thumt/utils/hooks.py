@@ -135,12 +135,12 @@ def _evaluate(eval_fn, input_fn, decode_fn, path, config):
     with graph.as_default():
         features = input_fn()
         refs = features["references"]
-        predictions = eval_fn(features)
-        predictions = predictions[0][:, 0, :]
-        results = {
-            "predictions": predictions,
-            "references": refs
+        placeholders = {
+            "source": tf.placeholder(tf.int32, [None, None], "source"),
+            "source_length": tf.placeholder(tf.int32, [None], "source_length")
         }
+        predictions = eval_fn(placeholders)
+        predictions = predictions[0][:, 0, :]
 
         all_refs = [[] for _ in range(len(refs))]
         all_outputs = []
@@ -152,13 +152,17 @@ def _evaluate(eval_fn, input_fn, decode_fn, path, config):
 
         with tf.train.MonitoredSession(session_creator=sess_creator) as sess:
             while not sess.should_stop():
-                outputs = sess.run(results)
+                feats = sess.run(features)
+                outputs = sess.run(predictions, feed_dict={
+                    placeholders["source"]: feats["source"],
+                    placeholders["source_length"]: feats["source_length"]
+                })
                 # shape: [batch, len]
-                predictions = outputs["predictions"].tolist()
+                outputs = outputs.tolist()
                 # shape: ([batch, len], ..., [batch, len])
-                references = [item.tolist() for item in outputs["references"]]
+                references = [item.tolist() for item in feats["references"]]
 
-                all_outputs.extend(predictions)
+                all_outputs.extend(outputs)
 
                 for i in range(len(refs)):
                     all_refs[i].extend(references[i])

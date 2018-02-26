@@ -8,6 +8,7 @@ from __future__ import print_function
 
 import argparse
 import os
+import six
 
 import numpy as np
 import tensorflow as tf
@@ -254,7 +255,10 @@ def decode_target_ids(inputs, params):
     for item in inputs:
         syms = []
         for idx in item:
-            sym = vocab[idx]
+            if isinstance(idx, six.integer_types):
+                sym = vocab[idx]
+            else:
+                sym = idx
 
             if sym == params.eos:
                 break
@@ -334,18 +338,18 @@ def main(args):
         tf.summary.scalar("learning_rate", learning_rate)
 
         # Create optimizer
-        if optimizer == "Adam":
+        if params.optimizer == "Adam":
             opt = tf.train.AdamOptimizer(learning_rate,
                                          beta1=params.adam_beta1,
                                          beta2=params.adam_beta2,
                                          epsilon=params.adam_epsilon)
-        elif optimizer == "LazyAdam":
+        elif params.optimizer == "LazyAdam":
             opt = tf.contrib.opt.LazyAdamOptimizer(learning_rate,
                                                    beta1=params.adam_beta1,
                                                    beta2=params.adam_beta2,
                                                    epsilon=params.adam_epsilon)
         else:
-            raise RuntimeError("Optimizer %s not supported" % optimizer)
+            raise RuntimeError("Optimizer %s not supported" % params.optimizer)
 
         loss, ops = optimize.create_train_op(loss, opt, global_step, params)
 

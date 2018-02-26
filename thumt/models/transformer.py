@@ -12,40 +12,6 @@ import thumt.interface as interface
 import thumt.layers as layers
 
 
-def get_weights(params):
-    svocab = params.vocabulary["source"]
-    tvocab = params.vocabulary["target"]
-    src_vocab_size = len(svocab)
-    tgt_vocab_size = len(tvocab)
-    vocab_size = tgt_vocab_size
-
-    hidden_size = params.hidden_size
-    initializer = tf.random_normal_initializer(0.0, params.hidden_size ** -0.5)
-
-    if params.shared_source_target_embedding:
-        if cmp(svocab, tvocab) != 0:
-            raise ValueError("Source and target vocabularies are not the same")
-
-        weights = tf.get_variable("weights", [src_vocab_size, hidden_size],
-                                  initializer=initializer)
-        semb, temb = weights, weights
-    else:
-        semb = tf.get_variable("source_embedding",
-                               [src_vocab_size, hidden_size],
-                               initializer=initializer)
-        temb = tf.get_variable("target_embedding",
-                               [tgt_vocab_size, hidden_size],
-                               initializer=initializer)
-
-    if params.shared_embedding_and_softmax_weights:
-        softmax_weights = temb
-    else:
-        softmax_weights = tf.get_variable("softmax", [vocab_size, hidden_size],
-                                          initializer=initializer)
-
-    return semb, temb, softmax_weights
-
-
 def layer_process(x, mode):
     if not mode or mode == "none":
         return x
@@ -114,13 +80,17 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
         return outputs
 
 
-def transformer_decoder(inputs, memory, bias, mem_bias, params, dtype=None,
-                        scope=None):
+def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
+                        dtype=None, scope=None):
     with tf.variable_scope(scope, default_name="decoder", dtype=dtype,
                            values=[inputs, memory, bias, mem_bias]):
         x = inputs
+        next_state = {}
         for layer in range(params.num_decoder_layers):
-            with tf.variable_scope("layer_%d" % layer):
+            layer_name = "layer_%d" % layer
+            with tf.variable_scope(layer_name):
+                layer_state = state[layer_name] if state is not None else None
+
                 with tf.variable_scope("self_attention"):
                     y = layers.attention.multihead_attention(
                         layer_process(x, params.layer_preprocess),
@@ -130,8 +100,13 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, dtype=None,
                         params.attention_key_channels or params.hidden_size,
                         params.attention_value_channels or params.hidden_size,
                         params.hidden_size,
-                        1.0 - params.attention_dropout
+                        1.0 - params.attention_dropout,
+                        state=layer_state
                     )
+
+                    if layer_state is not None:
+                        next_state[layer_name] = y["state"]
+
                     y = y["outputs"]
                     x = residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = layer_process(x, params.layer_postprocess)
@@ -145,7 +120,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, dtype=None,
                         params.attention_key_channels or params.hidden_size,
                         params.attention_value_channels or params.hidden_size,
                         params.hidden_size,
-                        1.0 - params.attention_dropout
+                        1.0 - params.attention_dropout,
                     )
                     y = y["outputs"]
                     x = residual_fn(x, y, 1.0 - params.residual_dropout)
@@ -163,13 +138,67 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, dtype=None,
 
         outputs = layer_process(x, params.layer_preprocess)
 
+        if state is not None:
+            return outputs, next_state
+
         return outputs
 
 
-def model_graph(features, mode, params):
-    hidden_size = params.hidden_size
+def encoding_graph(features, mode, params):
+    if mode != "train":
+        params.residual_dropout = 0.0
+        params.attention_dropout = 0.0
+        params.relu_dropout = 0.0
+        params.label_smoothing = 0.0
 
+    hidden_size = params.hidden_size
     src_seq = features["source"]
+    src_len = features["source_length"]
+    src_mask = tf.sequence_mask(src_len,
+                                maxlen=tf.shape(features["source"])[1],
+                                dtype=tf.float32)
+
+    svocab = params.vocabulary["source"]
+    src_vocab_size = len(svocab)
+    initializer = tf.random_normal_initializer(0.0, params.hidden_size ** -0.5)
+
+    if params.shared_source_target_embedding:
+        src_embedding = tf.get_variable("weights",
+                                        [src_vocab_size, hidden_size],
+                                        initializer=initializer)
+    else:
+        src_embedding = tf.get_variable("source_embedding",
+                                        [src_vocab_size, hidden_size],
+                                        initializer=initializer)
+
+    bias = tf.get_variable("bias", [hidden_size])
+
+    # id => embedding
+    # src_seq: [batch, max_src_length]
+    inputs = tf.gather(src_embedding, src_seq) * (hidden_size ** 0.5)
+    inputs = inputs * tf.expand_dims(src_mask, -1)
+
+    # Preparing encoder
+    encoder_input = tf.nn.bias_add(inputs, bias)
+    encoder_input = layers.attention.add_timing_signal(encoder_input)
+    enc_attn_bias = layers.attention.attention_bias(src_mask, "masking")
+
+    if params.residual_dropout:
+        keep_prob = 1.0 - params.residual_dropout
+        encoder_input = tf.nn.dropout(encoder_input, keep_prob)
+
+    encoder_output = transformer_encoder(encoder_input, enc_attn_bias, params)
+
+    return encoder_output
+
+
+def decoding_graph(features, state, mode, params):
+    if mode != "train":
+        params.residual_dropout = 0.0
+        params.attention_dropout = 0.0
+        params.relu_dropout = 0.0
+        params.label_smoothing = 0.0
+
     tgt_seq = features["target"]
     src_len = features["source_length"]
     tgt_len = features["target_length"]
@@ -180,43 +209,64 @@ def model_graph(features, mode, params):
                                 maxlen=tf.shape(features["target"])[1],
                                 dtype=tf.float32)
 
-    src_embedding, tgt_embedding, weights = get_weights(params)
-    bias = tf.get_variable("bias", [hidden_size])
+    hidden_size = params.hidden_size
+    tvocab = params.vocabulary["target"]
+    tgt_vocab_size = len(tvocab)
+    initializer = tf.random_normal_initializer(0.0, params.hidden_size ** -0.5)
+
+    if params.shared_source_target_embedding:
+        with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+
+            tgt_embedding = tf.get_variable("weights",
+                                            [tgt_vocab_size, hidden_size],
+                                            initializer=initializer)
+    else:
+        tgt_embedding = tf.get_variable("target_embedding",
+                                        [tgt_vocab_size, hidden_size],
+                                        initializer=initializer)
+
+    if params.shared_embedding_and_softmax_weights:
+        weights = tgt_embedding
+    else:
+        weights = tf.get_variable("softmax", [tgt_vocab_size, hidden_size],
+                                  initializer=initializer)
 
     # id => embedding
-    # src_seq: [batch, max_src_length]
     # tgt_seq: [batch, max_tgt_length]
-    inputs = tf.gather(src_embedding, src_seq) * (hidden_size ** 0.5)
     targets = tf.gather(tgt_embedding, tgt_seq) * (hidden_size ** 0.5)
-    inputs = inputs * tf.expand_dims(src_mask, -1)
     targets = targets * tf.expand_dims(tgt_mask, -1)
 
-    # Preparing encoder & decoder input
-    encoder_input = tf.nn.bias_add(inputs, bias)
-    encoder_input = layers.attention.add_timing_signal(encoder_input)
+    # Preparing encoder and decoder input
     enc_attn_bias = layers.attention.attention_bias(src_mask, "masking")
     dec_attn_bias = layers.attention.attention_bias(tf.shape(targets)[1],
                                                     "causal")
-
     # Shift left
     decoder_input = tf.pad(targets, [[0, 0], [1, 0], [0, 0]])[:, :-1, :]
     decoder_input = layers.attention.add_timing_signal(decoder_input)
 
     if params.residual_dropout:
         keep_prob = 1.0 - params.residual_dropout
-        encoder_input = tf.nn.dropout(encoder_input, keep_prob)
         decoder_input = tf.nn.dropout(decoder_input, keep_prob)
 
-    encoder_output = transformer_encoder(encoder_input, enc_attn_bias, params)
-    decoder_output = transformer_decoder(decoder_input, encoder_output,
-                                         dec_attn_bias, enc_attn_bias, params)
+    encoder_output = state["encoder"]
 
-    # inference mode, take the last position
-    if mode == "infer":
+    if mode != "infer":
+        decoder_output = transformer_decoder(decoder_input, encoder_output,
+                                             dec_attn_bias, enc_attn_bias,
+                                             params)
+    else:
+        decoder_input = decoder_input[:, -1:, :]
+        dec_attn_bias = dec_attn_bias[:, :, -1:, :]
+        decoder_outputs = transformer_decoder(decoder_input, encoder_output,
+                                              dec_attn_bias, enc_attn_bias,
+                                              params, state=state["decoder"])
+
+        decoder_output, decoder_state = decoder_outputs
         decoder_output = decoder_output[:, -1, :]
         logits = tf.matmul(decoder_output, weights, False, True)
+        log_prob = tf.nn.log_softmax(logits)
 
-        return tf.nn.log_softmax(logits)
+        return log_prob, {"encoder": encoder_output, "decoder": decoder_state}
 
     # [batch, length, channel] => [batch * length, vocab_size]
     decoder_output = tf.reshape(decoder_output, [-1, hidden_size])
@@ -241,6 +291,16 @@ def model_graph(features, mode, params):
     return loss
 
 
+def model_graph(features, mode, params):
+    encoder_output = encoding_graph(features, mode, params)
+    state = {
+        "encoder": encoder_output
+    }
+    output = decoding_graph(features, state, mode, params)
+
+    return output
+
+
 class Transformer(interface.NMTModel):
 
     def __init__(self, params, scope="transformer"):
@@ -249,7 +309,10 @@ class Transformer(interface.NMTModel):
     def get_training_func(self, initializer):
         def training_fn(features, params=None, reuse=None):
             if params is None:
-                params = self.parameters
+                params = copy.copy(self.parameters)
+            else:
+                params = copy.copy(params)
+
             with tf.variable_scope(self._scope, initializer=initializer,
                                    reuse=reuse):
                 loss = model_graph(features, "train", params)
@@ -264,11 +327,6 @@ class Transformer(interface.NMTModel):
             else:
                 params = copy.copy(params)
 
-            params.residual_dropout = 0.0
-            params.attention_dropout = 0.0
-            params.relu_dropout = 0.0
-            params.label_smoothing = 0.0
-
             with tf.variable_scope(self._scope):
                 score = model_graph(features, "eval", params)
 
@@ -277,23 +335,41 @@ class Transformer(interface.NMTModel):
         return evaluation_fn
 
     def get_inference_func(self):
-        def inference_fn(features, params=None):
+        def encoding_fn(features, params=None):
             if params is None:
                 params = copy.copy(self.parameters)
             else:
                 params = copy.copy(params)
 
-            params.residual_dropout = 0.0
-            params.attention_dropout = 0.0
-            params.relu_dropout = 0.0
-            params.label_smoothing = 0.0
+            with tf.variable_scope(self._scope):
+                encoder_output = encoding_graph(features, "infer", params)
+                batch = tf.shape(encoder_output)[0]
+
+                state = {
+                    "encoder": encoder_output,
+                    "decoder": {
+                        "layer_%d" % i: {
+                            "key": tf.zeros([batch, 0, params.hidden_size]),
+                            "value": tf.zeros([batch, 0, params.hidden_size])
+                        }
+                        for i in range(params.num_decoder_layers)
+                    }
+                }
+            return state
+
+        def decoding_fn(features, state, params=None):
+            if params is None:
+                params = copy.copy(self.parameters)
+            else:
+                params = copy.copy(params)
 
             with tf.variable_scope(self._scope):
-                logits = model_graph(features, "infer", params)
+                log_prob, new_state = decoding_graph(features, state, "infer",
+                                                     params)
 
-            return logits
+            return log_prob, new_state
 
-        return inference_fn
+        return encoding_fn, decoding_fn
 
     @staticmethod
     def get_name():

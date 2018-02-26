@@ -8,7 +8,6 @@ from __future__ import print_function
 import thumt.models.seq2seq
 import thumt.models.rnnsearch
 import thumt.models.transformer
-import thumt.models.experimental.transformer
 
 
 def get_model(name):
@@ -16,11 +15,9 @@ def get_model(name):
 
     if name == "rnnsearch":
         return thumt.models.rnnsearch.RNNsearch
-    elif name == "transformer":
-        return thumt.models.transformer.Transformer
     elif name == "seq2seq":
         return thumt.models.seq2seq.Seq2Seq
-    elif name == "experimental_transformer":
-        return thumt.models.experimental.transformer.Transformer
+    elif name == "transformer":
+        return thumt.models.transformer.Transformer
     else:
         raise LookupError("Unknown model %s" % name)

@@ -43,7 +43,7 @@ class NMTModel(object):
             signature:
                 (features, params) -> log_prob
 
-            See models/transformer.py and models/experimental/transformer.py
+            See models/transformer.py and models/rnnsearch.py
             for comparison.
         """
         raise NotImplementedError("Not implemented")

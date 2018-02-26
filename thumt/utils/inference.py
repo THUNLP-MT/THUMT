@@ -241,8 +241,7 @@ def beam_search(func, state, batch_size, beam_size, max_length, alpha,
     )
     outputs = tf.while_loop(_is_finished, _loop_fn, [time, state],
                             shape_invariants=[tf.TensorShape([]),
-                                              shape_invariants
-                                              ],
+                                              shape_invariants],
                             parallel_iterations=1,
                             back_prop=False)
 

@@ -51,7 +51,6 @@ def default_parameters():
         input=None,
         output=None,
         vocabulary=None,
-        model=None,
         # vocabulary specific
         pad="<pad>",
         bos="<bos>",
@@ -65,10 +64,8 @@ def default_parameters():
         decode_alpha=0.6,
         decode_length=50,
         decode_batch_size=32,
-        decode_constant=5.0,
-        decode_normalize=False,
         device_list=[0],
-        num_threads=6
+        num_threads=1
     )
 
     return params
