@@ -12,7 +12,7 @@ import thumt.interface as interface
 import thumt.layers as layers
 
 
-def layer_process(x, mode):
+def _layer_process(x, mode):
     if not mode or mode == "none":
         return x
     elif mode == "layer_norm":
@@ -21,13 +21,13 @@ def layer_process(x, mode):
         raise ValueError("Unknown mode %s" % mode)
 
 
-def residual_fn(x, y, keep_prob=None):
+def _residual_fn(x, y, keep_prob=None):
     if keep_prob and keep_prob < 1.0:
         y = tf.nn.dropout(y, keep_prob)
     return x + y
 
 
-def ffn_layer(inputs, hidden_size, output_size, keep_prob=None,
+def _ffn_layer(inputs, hidden_size, output_size, keep_prob=None,
               dtype=None, scope=None):
     with tf.variable_scope(scope, default_name="ffn_layer", values=[inputs],
                            dtype=dtype):
@@ -52,7 +52,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
             with tf.variable_scope("layer_%d" % layer):
                 with tf.variable_scope("self_attention"):
                     y = layers.attention.multihead_attention(
-                        layer_process(x, params.layer_preprocess),
+                        _layer_process(x, params.layer_preprocess),
                         None,
                         bias,
                         params.num_heads,
@@ -62,20 +62,20 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                         1.0 - params.attention_dropout
                     )
                     y = y["outputs"]
-                    x = residual_fn(x, y, 1.0 - params.residual_dropout)
-                    x = layer_process(x, params.layer_postprocess)
+                    x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                    x = _layer_process(x, params.layer_postprocess)
 
                 with tf.variable_scope("feed_forward"):
-                    y = ffn_layer(
-                        layer_process(x, params.layer_preprocess),
+                    y = _ffn_layer(
+                        _layer_process(x, params.layer_preprocess),
                         params.filter_size,
                         params.hidden_size,
                         1.0 - params.relu_dropout,
                     )
-                    x = residual_fn(x, y, 1.0 - params.residual_dropout)
-                    x = layer_process(x, params.layer_postprocess)
+                    x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                    x = _layer_process(x, params.layer_postprocess)
 
-        outputs = layer_process(x, params.layer_preprocess)
+        outputs = _layer_process(x, params.layer_preprocess)
 
         return outputs
 
@@ -93,7 +93,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
 
                 with tf.variable_scope("self_attention"):
                     y = layers.attention.multihead_attention(
-                        layer_process(x, params.layer_preprocess),
+                        _layer_process(x, params.layer_preprocess),
                         None,
                         bias,
                         params.num_heads,
@@ -108,12 +108,12 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                         next_state[layer_name] = y["state"]
 
                     y = y["outputs"]
-                    x = residual_fn(x, y, 1.0 - params.residual_dropout)
-                    x = layer_process(x, params.layer_postprocess)
+                    x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                    x = _layer_process(x, params.layer_postprocess)
 
                 with tf.variable_scope("encdec_attention"):
                     y = layers.attention.multihead_attention(
-                        layer_process(x, params.layer_preprocess),
+                        _layer_process(x, params.layer_preprocess),
                         memory,
                         mem_bias,
                         params.num_heads,
@@ -123,20 +123,20 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                         1.0 - params.attention_dropout,
                     )
                     y = y["outputs"]
-                    x = residual_fn(x, y, 1.0 - params.residual_dropout)
-                    x = layer_process(x, params.layer_postprocess)
+                    x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                    x = _layer_process(x, params.layer_postprocess)
 
                 with tf.variable_scope("feed_forward"):
-                    y = ffn_layer(
-                        layer_process(x, params.layer_preprocess),
+                    y = _ffn_layer(
+                        _layer_process(x, params.layer_preprocess),
                         params.filter_size,
                         params.hidden_size,
                         1.0 - params.relu_dropout,
                     )
-                    x = residual_fn(x, y, 1.0 - params.residual_dropout)
-                    x = layer_process(x, params.layer_postprocess)
+                    x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                    x = _layer_process(x, params.layer_postprocess)
 
-        outputs = layer_process(x, params.layer_preprocess)
+        outputs = _layer_process(x, params.layer_preprocess)
 
         if state is not None:
             return outputs, next_state
@@ -216,7 +216,6 @@ def decoding_graph(features, state, mode, params):
 
     if params.shared_source_target_embedding:
         with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-
             tgt_embedding = tf.get_variable("weights",
                                             [tgt_vocab_size, hidden_size],
                                             initializer=initializer)
@@ -398,7 +397,7 @@ class Transformer(interface.NMTModel):
             shared_embedding_and_softmax_weights=False,
             shared_source_target_embedding=False,
             # Override default parameters
-            learning_rate_decay="noam",
+            learning_rate_decay="linear_warmup_rsqrt_decay",
             initializer="uniform_unit_scaling",
             initializer_gain=1.0,
             learning_rate=1.0,
