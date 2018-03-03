@@ -408,17 +408,21 @@ def main(args):
                 )
             )
 
+        def step_fn(step_context):
+            # Bypass hook calls
+            step_context.session.run([init_op, ops["zero_op"]])
+            for i in range(params.update_cycle):
+                step_context.session.run(ops["collect_op"])
+            step_context.session.run(ops["scale_op"])
+
+            return step_context.run_with_hooks(ops["train_op"])
+
         # Create session, do not use default CheckpointSaverHook
         with tf.train.MonitoredTrainingSession(
                 checkpoint_dir=params.output, hooks=train_hooks,
                 save_checkpoint_secs=None, config=config) as sess:
             while not sess.should_stop():
-                # Bypass hook calls
-                utils.session_run(sess, [init_op, ops["zero_op"]])
-                for i in range(params.update_cycle):
-                    utils.session_run(sess, ops["collect_op"])
-                utils.session_run(sess, ops["scale_op"])
-                sess.run(ops["train_op"])
+                sess.run_step_fn(step_fn)
 
 
 if __name__ == "__main__":
