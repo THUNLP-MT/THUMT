@@ -282,11 +282,11 @@ class EvaluationHook(tf.train.SessionRunHook):
                     old_path = os.path.join(self._base_dir, added)
                     new_path = os.path.join(self._save_path, added)
                     old_files = tf.gfile.Glob(old_path + "*")
-                    tf.logging.info("Moving %s to %s" % (old_path, new_path))
+                    tf.logging.info("Copying %s to %s" % (old_path, new_path))
 
                     for o_file in old_files:
                         n_file = o_file.replace(old_path, new_path)
-                        tf.gfile.Rename(o_file, n_file, overwrite=True)
+                        tf.gfile.Copy(o_file, n_file, overwrite=True)
 
                 if removed is not None:
                     filename = os.path.join(self._save_path, removed)

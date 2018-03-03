@@ -97,7 +97,9 @@ def default_parameters():
         references=[""],
         save_checkpoint_secs=0,
         save_checkpoint_steps=1000,
-        only_save_trainable=True
+        # Setting this to True can save disk spaces, but cannot restore
+        # training using the saved checkpoint
+        only_save_trainable=False
     )
 
     return params
@@ -363,6 +365,13 @@ def main(args):
 
         # Add hooks
         save_vars = tf.trainable_variables() + [global_step]
+        saver = tf.train.Saver(
+            var_list=save_vars if params.only_save_trainable else None,
+            max_to_keep=params.keep_checkpoint_max,
+            sharded=False
+        )
+        tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
+
         train_hooks = [
             tf.train.StopAtStepHook(last_step=params.train_steps),
             tf.train.NanTensorHook(loss),
@@ -377,11 +386,7 @@ def main(args):
                 checkpoint_dir=params.output,
                 save_secs=params.save_checkpoint_secs or None,
                 save_steps=params.save_checkpoint_steps or None,
-                saver=tf.train.Saver(
-                    var_list=save_vars if params.only_save_trainable else None,
-                    max_to_keep=params.keep_checkpoint_max,
-                    sharded=False
-                )
+                saver=saver
             )
         ]
 
