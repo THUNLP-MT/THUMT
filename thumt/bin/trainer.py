@@ -386,9 +386,6 @@ def main(args):
         loss, ops = optimize.create_train_op(loss, opt, global_step, params)
         restore_op = restore_variables(args.checkpoint)
 
-        # Add summary
-        tf.summary.scalar("loss", loss)
-
         # Validation
         if params.validation and params.references[0]:
             files = [params.validation] + list(params.references)
@@ -442,6 +439,9 @@ def main(args):
                 )
             )
 
+        def restore_fn(step_context):
+            step_context.session.run(restore_op)
+
         def step_fn(step_context):
             # Bypass hook calls
             step_context.session.run([init_op, ops["zero_op"]])
@@ -456,7 +456,7 @@ def main(args):
                 checkpoint_dir=params.output, hooks=train_hooks,
                 save_checkpoint_secs=None, config=config) as sess:
             # Restore pre-trained variables
-            sess.run_step_fn(lambda x: x.session.run(restore_op))
+            sess.run_step_fn(restore_fn)
 
             while not sess.should_stop():
                 sess.run_step_fn(step_fn)
