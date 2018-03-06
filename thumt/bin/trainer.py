@@ -21,7 +21,6 @@ import thumt.utils.hooks as hooks
 import thumt.utils.inference as inference
 import thumt.utils.optimize as optimize
 import thumt.utils.parallel as parallel
-import thumt.utils.utils as utils
 
 
 def parse_args(args=None):
@@ -43,6 +42,8 @@ def parse_args(args=None):
                         help="Path of validation file")
     parser.add_argument("--references", type=str, nargs="+",
                         help="Path of reference files")
+    parser.add_argument("--checkpoint", type=str,
+                        help="Path to pre-trained checkpoint")
 
     # model and configuration
     parser.add_argument("--model", type=str, required=True,
@@ -274,6 +275,35 @@ def decode_target_ids(inputs, params):
     return decoded
 
 
+def restore_variables(checkpoint):
+    if not checkpoint:
+        return tf.no_op("restore_op")
+
+    # Load checkpoints
+    tf.logging.info("Loading %s" % checkpoint)
+    var_list = tf.train.list_variables(checkpoint)
+    reader = tf.train.load_checkpoint(checkpoint)
+    values = {}
+
+    for (name, shape) in var_list:
+        tensor = reader.get_tensor(name)
+        name = name.split(":")[0]
+        values[name] = tensor
+
+    var_list = tf.trainable_variables()
+    ops = []
+
+    for var in var_list:
+        name = var.name.split(":")[0]
+
+        if name in values:
+            tf.logging.info("Restore %s" % var.name)
+
+        ops.append(tf.assign(var, values[name]))
+
+    return tf.group(*ops, name="restore_op")
+
+
 def main(args):
     tf.logging.set_verbosity(tf.logging.INFO)
     model_cls = models.get_model(args.model)
@@ -354,6 +384,10 @@ def main(args):
             raise RuntimeError("Optimizer %s not supported" % params.optimizer)
 
         loss, ops = optimize.create_train_op(loss, opt, global_step, params)
+        restore_op = restore_variables(args.checkpoint)
+
+        # Add summary
+        tf.summary.scalar("loss", loss)
 
         # Validation
         if params.validation and params.references[0]:
@@ -421,6 +455,9 @@ def main(args):
         with tf.train.MonitoredTrainingSession(
                 checkpoint_dir=params.output, hooks=train_hooks,
                 save_checkpoint_secs=None, config=config) as sess:
+            # Restore pre-trained variables
+            sess.run_step_fn(lambda x: x.session.run(restore_op))
+
             while not sess.should_stop():
                 sess.run_step_fn(step_fn)
 

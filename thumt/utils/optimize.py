@@ -127,7 +127,6 @@ def create_train_op(loss, optimizer, global_step, params):
             loss = tf.convert_to_tensor(loss_tensor)
 
         # Add summaries
-        tf.summary.scalar("loss", loss)
         tf.summary.scalar("global_norm/gradient_norm",
                           tf.global_norm(gradients))
 

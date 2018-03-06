@@ -17,6 +17,7 @@ import thumt.data.vocab as vocabulary
 import thumt.models as models
 import thumt.utils.inference as inference
 import thumt.utils.parallel as parallel
+import thumt.utils.sampling as sampling
 
 
 def parse_args():
@@ -58,14 +59,22 @@ def default_parameters():
         unk="<unk>",
         mapping=None,
         append_eos=False,
+        device_list=[0],
+        num_threads=1,
         # decoding
         top_beams=1,
         beam_size=4,
         decode_alpha=0.6,
         decode_length=50,
         decode_batch_size=32,
-        device_list=[0],
-        num_threads=1
+        # sampling
+        generate_samples=False,
+        num_samples=1,
+        min_length_ratio=0.0,
+        max_length_ratio=1.5,
+        min_sample_length=0,
+        max_sample_length=0,
+        sample_batch_size=32
     )
 
     return params
@@ -257,9 +266,13 @@ def main(args):
             })
 
         # A list of outputs
+        if params.generate_samples:
+            inference_fn = sampling.create_sampling_graph
+        else:
+            inference_fn = inference.create_inference_graph
+
         predictions = parallel.data_parallelism(
-            params.device_list,
-            lambda f: inference.create_inference_graph(model_fns, f, params),
+            params.device_list, lambda f: inference_fn(model_fns, f, params),
             placeholders)
 
         # Create assign ops

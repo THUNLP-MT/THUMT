@@ -7,6 +7,7 @@ from __future__ import print_function
 
 import copy
 import tensorflow as tf
+import thumt.utils.common as utils
 
 from collections import namedtuple
 from tensorflow.python.util import nest
@@ -49,83 +50,19 @@ def _get_inference_fn(model_fns, features):
     return inference_fn
 
 
-def _infer_shape(x):
-    x = tf.convert_to_tensor(x)
-
-    # If unknown rank, return dynamic shape
-    if x.shape.dims is None:
-        return tf.shape(x)
-
-    static_shape = x.shape.as_list()
-    dynamic_shape = tf.shape(x)
-
-    ret = []
-    for i in range(len(static_shape)):
-        dim = static_shape[i]
-        if dim is None:
-            dim = dynamic_shape[i]
-        ret.append(dim)
-
-    return ret
-
-
-def _infer_shape_invariants(tensor):
-    shape = tensor.shape.as_list()
-    for i in range(1, len(shape) - 1):
-        shape[i] = None
-    return tf.TensorShape(shape)
-
-
-def _merge_first_two_dims(tensor):
-    shape = _infer_shape(tensor)
-    shape[0] *= shape[1]
-    shape.pop(1)
-    return tf.reshape(tensor, shape)
-
-
-def _split_first_two_dims(tensor, dim_0, dim_1):
-    shape = _infer_shape(tensor)
-    new_shape = [dim_0] + [dim_1] + shape[1:]
-    return tf.reshape(tensor, new_shape)
-
-
-def _tile_to_beam_size(tensor, beam_size):
-    """Tiles a given tensor by beam_size. """
-    tensor = tf.expand_dims(tensor, axis=1)
-    tile_dims = [1] * tensor.shape.ndims
-    tile_dims[1] = beam_size
-
-    return tf.tile(tensor, tile_dims)
-
-
-def _gather_2d(params, indices, name=None):
-    """ Gather the 2nd dimension given indices
-    :param params: A tensor with shape [batch_size, M, ...]
-    :param indices: A tensor with shape [batch_size, N]
-    :return: A tensor with shape [batch_size, N, ...]
-    """
-    batch_size = tf.shape(params)[0]
-    range_size = tf.shape(indices)[1]
-    batch_pos = tf.range(batch_size * range_size) // range_size
-    batch_pos = tf.reshape(batch_pos, [batch_size, range_size])
-    indices = tf.stack([batch_pos, indices], axis=-1)
-    output = tf.gather_nd(params, indices, name=name)
-
-    return output
-
-
 def _beam_search_step(time, func, state, batch_size, beam_size, alpha,
                       pad_id, eos_id):
     # Compute log probabilities
     seqs, log_probs = state.inputs[:2]
-    flat_seqs = _merge_first_two_dims(seqs)
-    flat_state = nest.map_structure(lambda x: _merge_first_two_dims(x),
+    flat_seqs = utils.merge_first_two_dims(seqs)
+    flat_state = nest.map_structure(lambda x: utils.merge_first_two_dims(x),
                                     state.state)
     step_log_probs, next_state = func(flat_seqs, flat_state)
-    step_log_probs = _split_first_two_dims(step_log_probs, batch_size,
+    step_log_probs = utils.split_first_two_dims(step_log_probs, batch_size,
                                            beam_size)
     next_state = nest.map_structure(
-        lambda x: _split_first_two_dims(x, batch_size, beam_size), next_state)
+        lambda x: utils.split_first_two_dims(x, batch_size, beam_size),
+        next_state)
     curr_log_probs = tf.expand_dims(log_probs, 2) + step_log_probs
 
     # Apply length penalty
@@ -143,7 +80,7 @@ def _beam_search_step(time, func, state, batch_size, beam_size, alpha,
     symbol_indices = top_indices % vocab_size
     # Expand sequences
     # [batch_size, 2 * beam_size, time]
-    candidate_seqs = _gather_2d(seqs, beam_indices)
+    candidate_seqs = utils.gather_2d(seqs, beam_indices)
     candidate_seqs = tf.concat([candidate_seqs,
                                 tf.expand_dims(symbol_indices, 2)], 2)
 
@@ -154,13 +91,14 @@ def _beam_search_step(time, func, state, batch_size, beam_size, alpha,
     alive_scores = top_scores + tf.to_float(flags) * tf.float32.min
     # [batch, beam_size]
     alive_scores, alive_indices = tf.nn.top_k(alive_scores, beam_size)
-    alive_symbols = _gather_2d(symbol_indices, alive_indices)
-    alive_indices = _gather_2d(beam_indices, alive_indices)
-    alive_seqs = _gather_2d(seqs, alive_indices)
+    alive_symbols = utils.gather_2d(symbol_indices, alive_indices)
+    alive_indices = utils.gather_2d(beam_indices, alive_indices)
+    alive_seqs = utils.gather_2d(seqs, alive_indices)
     # [batch_size, beam_size, time + 1]
     alive_seqs = tf.concat([alive_seqs, tf.expand_dims(alive_symbols, 2)], 2)
-    alive_state = nest.map_structure(lambda x: _gather_2d(x, alive_indices),
-                                     next_state)
+    alive_state = nest.map_structure(
+        lambda x: utils.gather_2d(x, alive_indices),
+        next_state)
     alive_log_probs = alive_scores * length_penalty
 
     # Select finished sequences
@@ -172,12 +110,12 @@ def _beam_search_step(time, func, state, batch_size, beam_size, alpha,
     fin_scores = tf.concat([prev_fin_scores, step_fin_scores], axis=1)
     # [batch, beam_size]
     fin_scores, fin_indices = tf.nn.top_k(fin_scores, beam_size)
-    fin_flags = _gather_2d(fin_flags, fin_indices)
+    fin_flags = utils.gather_2d(fin_flags, fin_indices)
     pad_seqs = tf.fill([batch_size, beam_size, 1],
                        tf.constant(pad_id, tf.int32))
     prev_fin_seqs = tf.concat([prev_fin_seqs, pad_seqs], axis=2)
     fin_seqs = tf.concat([prev_fin_seqs, candidate_seqs], axis=1)
-    fin_seqs = _gather_2d(fin_seqs, fin_indices)
+    fin_seqs = utils.gather_2d(fin_seqs, fin_indices)
 
     new_state = BeamSearchState(
         inputs=(alive_seqs, alive_log_probs, alive_scores),
@@ -234,7 +172,7 @@ def beam_search(func, state, batch_size, beam_size, max_length, alpha,
         inputs=(tf.TensorShape([None, None, None]),
                 tf.TensorShape([None, None]),
                 tf.TensorShape([None, None])),
-        state=nest.map_structure(_infer_shape_invariants, state.state),
+        state=nest.map_structure(utils.infer_shape_invariants, state.state),
         finish=(tf.TensorShape([None, None]),
                 tf.TensorShape([None, None, None]),
                 tf.TensorShape([None, None]))
@@ -253,7 +191,7 @@ def beam_search(func, state, batch_size, beam_size, max_length, alpha,
     final_scores = final_state.finish[2]
 
     alive_seqs.set_shape([None, beam_size, None])
-    final_seqs.set_shape((None, beam_size, None))
+    final_seqs.set_shape([None, beam_size, None])
 
     final_seqs = tf.where(tf.reduce_any(final_flags, 1), final_seqs,
                           alive_seqs)
@@ -294,7 +232,7 @@ def create_inference_graph(model_fns, features, params):
     bos_id = params.mapping["target"][params.bos]
     eos_id = params.mapping["target"][params.eos]
 
-    # Expand the inputs in to the beam size
+    # Expand the inputs
     # [batch, length] => [batch, beam_size, length]
     features["source"] = tf.expand_dims(features["source"], 1)
     features["source"] = tf.tile(features["source"], [1, beam_size, 1])
@@ -316,8 +254,9 @@ def create_inference_graph(model_fns, features, params):
     features["source_length"] = tf.reshape(features["source_length"],
                                            [shape[0] * shape[1]])
     decoding_fn = _get_inference_fn(funcs, features)
-    states = nest.map_structure(lambda x: _tile_to_beam_size(x, beam_size),
-                                states)
+    states = nest.map_structure(
+        lambda x: utils.tile_to_beam_size(x, beam_size),
+        states)
 
     seqs, scores = beam_search(decoding_fn, states, batch_size, beam_size,
                                max_length, alpha, pad_id, bos_id, eos_id)
