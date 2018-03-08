@@ -6,8 +6,8 @@ from __future__ import division
 from __future__ import print_function
 
 import math
-import tensorflow as tf
 
+import tensorflow as tf
 from thumt.layers.nn import linear
 
 
@@ -31,8 +31,8 @@ def add_timing_signal(x, min_timescale=1.0, max_timescale=1.0e4, name=None):
         num_timescales = channels // 2
 
         log_timescale_increment = (
-            math.log(float(max_timescale) / float(min_timescale)) /
-            (tf.to_float(num_timescales) - 1)
+                math.log(float(max_timescale) / float(min_timescale)) /
+                (tf.to_float(num_timescales) - 1)
         )
         inv_timescales = min_timescale * tf.exp(
             tf.to_float(tf.range(num_timescales)) * -log_timescale_increment
@@ -129,6 +129,48 @@ def attention_bias(inputs, mode, inf=-1e9, name=None):
             return tf.reshape(ret, [1, 1, length, length])
         else:
             raise ValueError("Unknown mode %s" % mode)
+
+
+def should_generate_summaries():
+    """Is this an appropriate context to generate summaries.
+    :returns: a boolean
+    """
+    if "while/" in tf.contrib.framework.get_name_scope():
+        return False
+    if tf.get_variable_scope().reuse:
+        return False
+    return True
+
+
+def attention_image_summary(weights, rgb=True):
+    """Compute attention image summary.
+    :param weights: a Tensor with shape [batch, heads, queries, memories]
+    :param rgb: use RGB color to represent a head
+    """
+    shape = tf.shape(weights)
+    batch_size = shape[0]
+    num_heads = shape[1]
+    num_queries = shape[2]
+    num_memories = shape[3]
+
+    if rgb:
+        # [batch, queries, memories, heads]
+        image = tf.transpose(weights, [0, 2, 3, 1])
+        # for high-dynamic-range
+        image = tf.pow(image, 0.2)
+        # Each head will correspond to one of RGB
+        image = tf.pad(image, [[0, 0], [0, 0], [0, 0],
+                               [0, tf.mod(-num_heads, 3)]])
+        shape = tf.shape(image)
+        # [batch, queries, memories, 3, heads]
+        image = tf.reshape(image, [batch_size, num_queries, num_memories,
+                                   3, shape[-1] // 3])
+        image = tf.reduce_max(image, 4)
+    else:
+        image = tf.reshape(weights, [-1, num_queries, num_memories, 1])
+
+    # [batch, height, width, channel]
+    tf.summary.image("attention", image, max_outputs=1)
 
 
 def attention(query, memories, bias, hidden_size, cache=None, reuse=None,
@@ -276,7 +318,7 @@ def multiplicative_attention(queries, keys, values, bias, keep_prob=None,
 
 def multihead_attention(queries, memories, bias, num_heads, key_size,
                         value_size, output_size, keep_prob=None, output=True,
-                        state=None, dtype=None, scope=None):
+                        state=None, summary=True, dtype=None, scope=None):
     """ Multi-head scaled-dot-product attention with input/output
         transformations.
 
@@ -290,6 +332,7 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
     :param keep_prob: A floating point number in (0, 1]
     :param output: Whether to use output transformation
     :param state: An optional dictionary used for incremental decoding
+    :param summary: Use image summary
     :param dtype: An optional instance of tf.DType
     :param scope: An optional string
 
@@ -349,6 +392,9 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
                              scope="output_transform")
         else:
             outputs = x
+
+        if should_generate_summaries() and summary:
+            attention_image_summary(weights)
 
         outputs = {"weights": weights, "outputs": outputs}
 
