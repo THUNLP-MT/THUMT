@@ -59,7 +59,7 @@ def _beam_search_step(time, func, state, batch_size, beam_size, alpha,
                                     state.state)
     step_log_probs, next_state = func(flat_seqs, flat_state)
     step_log_probs = utils.split_first_two_dims(step_log_probs, batch_size,
-                                           beam_size)
+                                                beam_size)
     next_state = nest.map_structure(
         lambda x: utils.split_first_two_dims(x, batch_size, beam_size),
         next_state)

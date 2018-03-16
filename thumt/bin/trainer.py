@@ -298,8 +298,7 @@ def restore_variables(checkpoint):
 
         if name in values:
             tf.logging.info("Restore %s" % var.name)
-
-        ops.append(tf.assign(var, values[name]))
+            ops.append(tf.assign(var, values[name]))
 
     return tf.group(*ops, name="restore_op")
 
