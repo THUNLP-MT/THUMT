@@ -333,8 +333,8 @@ def main(args):
                 os.path.join(params.record, "*train*"), "train", params
             )
 
-        features, init_op = cache.cache_features(features,
-                                                 params.update_cycle)
+        update_cycle = params.update_cycle
+        features, init_op = cache.cache_features(features, update_cycle)
 
         # Build model
         initializer = get_initializer(params)
@@ -402,6 +402,8 @@ def main(args):
         )
         tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
 
+        multiplier = tf.convert_to_tensor([update_cycle, 1])
+
         train_hooks = [
             tf.train.StopAtStepHook(last_step=params.train_steps),
             tf.train.NanTensorHook(loss),
@@ -409,6 +411,8 @@ def main(args):
                 {
                     "step": global_step,
                     "loss": loss,
+                    "source": tf.shape(features["source"]) * multiplier,
+                    "target": tf.shape(features["target"]) * multiplier
                 },
                 every_n_iter=1
             ),
@@ -444,9 +448,8 @@ def main(args):
         def step_fn(step_context):
             # Bypass hook calls
             step_context.session.run([init_op, ops["zero_op"]])
-            for i in range(params.update_cycle):
+            for i in range(update_cycle - 1):
                 step_context.session.run(ops["collect_op"])
-            step_context.session.run(ops["scale_op"])
 
             return step_context.run_with_hooks(ops["train_op"])
 

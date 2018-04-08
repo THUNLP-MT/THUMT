@@ -8,48 +8,6 @@ from __future__ import print_function
 import tensorflow as tf
 
 
-def _get_loss_variable(graph=None):
-    graph = graph or tf.get_default_graph()
-    loss_tensors = tf.get_collection("loss")
-
-    if len(loss_tensors) == 1:
-        loss_tensor = loss_tensors[0]
-    elif not loss_tensors:
-        try:
-            loss_tensor = graph.get_tensor_by_name("loss_tensor:0")
-        except KeyError:
-            return None
-    else:
-        tf.logging.error("Multiple tensors in loss collection.")
-        return None
-
-    return loss_tensor
-
-
-def _create_loss_variable(graph=None):
-    graph = graph or tf.get_default_graph()
-    if _get_loss_variable(graph) is not None:
-        raise ValueError("'loss' already exists.")
-
-    # Create in proper graph and base name_scope.
-    with graph.as_default() as g, g.name_scope(None):
-        tensor = tf.get_variable("loss", shape=[], dtype=tf.float32,
-                                 initializer=tf.zeros_initializer(),
-                                 trainable=False,
-                                 collections=[tf.GraphKeys.GLOBAL_VARIABLES,
-                                              "loss"])
-
-    return tensor
-
-
-def _get_or_create_loss_variable(graph=None):
-    graph = graph or tf.get_default_graph()
-    loss_tensor = _get_loss_variable(graph)
-    if loss_tensor is None:
-        loss_tensor = _create_loss_variable(graph)
-    return loss_tensor
-
-
 def _zero_variables(variables, name=None):
     ops = []
 
@@ -86,19 +44,8 @@ def _collect_gradients(gradients, variables):
     return tf.group(*ops, name="collect_gradients")
 
 
-def _scale_variables(variables, scale):
-    if not isinstance(variables, (list, tuple)):
-        return tf.assign(variables, scale * variables)
-
-    ops = []
-
-    for var in variables:
-        ops.append(tf.assign(var, scale * var))
-
-    return tf.group(*ops, name="scale_variables")
-
-
 def create_train_op(loss, optimizer, global_step, params):
+
     with tf.name_scope("create_train_op"):
         grads_and_vars = optimizer.compute_gradients(
             loss, colocate_gradients_with_ops=True)
@@ -108,28 +55,22 @@ def create_train_op(loss, optimizer, global_step, params):
         if params.update_cycle == 1:
             zero_variables_op = tf.no_op("zero_variables")
             collect_op = tf.no_op("collect_op")
-            scale_op = tf.no_op("scale_op")
         else:
-            # collect
-            loss_tensor = _get_or_create_loss_variable()
+            loss_var = tf.Variable(tf.zeros([]),  name="loss/replica",
+                                   trainable=False)
             slot_variables = _replicate_variables(variables)
-            zero_variables_op = _zero_variables(slot_variables + [loss_tensor])
+            zero_variables_op = _zero_variables(slot_variables + [loss_var])
             collect_grads_op = _collect_gradients(gradients, slot_variables)
-            collect_loss_op = tf.assign_add(loss_tensor, loss)
+            collect_loss_op = tf.assign_add(loss_var, loss)
             collect_op = tf.group(collect_loss_op, collect_grads_op,
                                   name="collect_op")
-            # scale
             scale = 1.0 / params.update_cycle
-            scale_grads_op = _scale_variables(slot_variables, scale)
-            scale_loss_op = _scale_variables(loss_tensor, scale)
-            scale_op = tf.group(scale_grads_op, scale_loss_op, name="scale_op")
-            gradients = slot_variables
-            loss = tf.convert_to_tensor(loss_tensor)
+            gradients = [scale * (g + s)
+                         for (g, s) in zip(gradients, slot_variables)]
+            loss = scale * (loss + loss_var)
 
-        # Add summaries
-        tf.summary.scalar("loss", loss)
-        tf.summary.scalar("global_norm/gradient_norm",
-                          tf.global_norm(gradients))
+        global_norm = tf.global_norm(gradients)
+        tf.summary.scalar("global_norm/gradient_norm", global_norm)
 
         for gradient, variable in zip(gradients, variables):
             if isinstance(gradient, tf.IndexedSlices):
@@ -146,7 +87,8 @@ def create_train_op(loss, optimizer, global_step, params):
         # Gradient clipping
         if isinstance(params.clip_grad_norm or None, float):
             gradients, _ = tf.clip_by_global_norm(gradients,
-                                                  params.clip_grad_norm)
+                                                  params.clip_grad_norm,
+                                                  use_norm=global_norm)
 
         # Update variables
         grads_and_vars = list(zip(gradients, tf.trainable_variables()))
@@ -155,8 +97,10 @@ def create_train_op(loss, optimizer, global_step, params):
         ops = {
             "zero_op": zero_variables_op,
             "collect_op": collect_op,
-            "scale_op": scale_op,
             "train_op": train_op
         }
 
-        return loss, ops
+    # Add summaries
+    tf.summary.scalar(params.model + "/loss", loss)
+
+    return loss, ops

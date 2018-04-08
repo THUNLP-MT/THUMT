@@ -68,6 +68,7 @@ def gather_2d(params, indices, name=None):
     """ Gather the 2nd dimension given indices
     :param params: A tensor with shape [batch_size, M, ...]
     :param indices: A tensor with shape [batch_size, N]
+    :param name: An optional string
     :return: A tensor with shape [batch_size, N, ...]
     """
     batch_size = tf.shape(params)[0]
