@@ -28,7 +28,7 @@ def _residual_fn(x, y, keep_prob=None):
 
 
 def _ffn_layer(inputs, hidden_size, output_size, keep_prob=None,
-              dtype=None, scope=None):
+               dtype=None, scope=None):
     with tf.variable_scope(scope, default_name="ffn_layer", values=[inputs],
                            dtype=dtype):
         with tf.variable_scope("input_layer"):
@@ -173,12 +173,13 @@ def encoding_graph(features, mode, params):
 
     bias = tf.get_variable("bias", [hidden_size])
 
-    # id => embedding
-    # src_seq: [batch, max_src_length]
-    inputs = tf.gather(src_embedding, src_seq) * (hidden_size ** 0.5)
+    inputs = tf.gather(src_embedding, src_seq)
+
+    if params.multiply_embedding_mode == "sqrt_depth":
+        inputs = inputs * (hidden_size ** 0.5)
+
     inputs = inputs * tf.expand_dims(src_mask, -1)
 
-    # Preparing encoder
     encoder_input = tf.nn.bias_add(inputs, bias)
     encoder_input = layers.attention.add_timing_signal(encoder_input)
     enc_attn_bias = layers.attention.attention_bias(src_mask, "masking")
@@ -230,12 +231,13 @@ def decoding_graph(features, state, mode, params):
         weights = tf.get_variable("softmax", [tgt_vocab_size, hidden_size],
                                   initializer=initializer)
 
-    # id => embedding
-    # tgt_seq: [batch, max_tgt_length]
-    targets = tf.gather(tgt_embedding, tgt_seq) * (hidden_size ** 0.5)
+    targets = tf.gather(tgt_embedding, tgt_seq)
+
+    if params.multiply_embedding_mode == "sqrt_depth":
+        targets = targets * (hidden_size ** 0.5)
+
     targets = targets * tf.expand_dims(tgt_mask, -1)
 
-    # Preparing encoder and decoder input
     enc_attn_bias = layers.attention.attention_bias(src_mask, "masking")
     dec_attn_bias = layers.attention.attention_bias(tf.shape(targets)[1],
                                                     "causal")
@@ -267,7 +269,6 @@ def decoding_graph(features, state, mode, params):
 
         return log_prob, {"encoder": encoder_output, "decoder": decoder_state}
 
-    # [batch, length, channel] => [batch * length, vocab_size]
     decoder_output = tf.reshape(decoder_output, [-1, hidden_size])
     logits = tf.matmul(decoder_output, weights, False, True)
     labels = features["target"]
@@ -393,6 +394,8 @@ class Transformer(interface.NMTModel):
             label_smoothing=0.1,
             attention_key_channels=0,
             attention_value_channels=0,
+            layer_preprocess="none",
+            layer_postprocess="layer_norm",
             multiply_embedding_mode="sqrt_depth",
             shared_embedding_and_softmax_weights=False,
             shared_source_target_embedding=False,
@@ -401,8 +404,6 @@ class Transformer(interface.NMTModel):
             initializer="uniform_unit_scaling",
             initializer_gain=1.0,
             learning_rate=1.0,
-            layer_preprocess="none",
-            layer_postprocess="layer_norm",
             batch_size=4096,
             constant_batch_size=False,
             adam_beta1=0.9,
