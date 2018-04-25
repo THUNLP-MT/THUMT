@@ -75,6 +75,8 @@ def default_parameters():
         update_cycle=1,
         initializer="uniform_unit_scaling",
         initializer_gain=1.0,
+        scale_l1=0.0,
+        scale_l2=0.0,
         optimizer="Adam",
         adam_beta1=0.9,
         adam_beta2=0.999,
@@ -338,18 +340,20 @@ def main(args):
 
         # Build model
         initializer = get_initializer(params)
+        regularizer = tf.contrib.layers.l1_l2_regularizer(
+            scale_l1=params.scale_l1, scale_l2=params.scale_l2)
         model = model_cls(params)
+        # Create global step
+        global_step = tf.train.get_or_create_global_step()
 
         # Multi-GPU setting
         sharded_losses = parallel.parallel_model(
-            model.get_training_func(initializer),
+            model.get_training_func(initializer, regularizer),
             features,
             params.device_list
         )
         loss = tf.add_n(sharded_losses) / len(sharded_losses)
-
-        # Create global step
-        global_step = tf.train.get_or_create_global_step()
+        loss = loss + tf.losses.get_regularization_loss()
 
         # Print parameters
         all_weights = {v.name: v for v in tf.trainable_variables()}
@@ -430,7 +434,7 @@ def main(args):
             train_hooks.append(
                 hooks.EvaluationHook(
                     lambda f: inference.create_inference_graph(
-                        [model.get_inference_func()], f, params
+                        [model], f, params
                     ),
                     lambda: eval_input_fn(eval_inputs, params),
                     lambda x: decode_target_ids(x, params),

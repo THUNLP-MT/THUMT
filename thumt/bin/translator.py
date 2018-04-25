@@ -160,7 +160,7 @@ def session_config(params):
     return config
 
 
-def set_variables(var_list, value_dict, prefix):
+def set_variables(var_list, value_dict, prefix, feed_dict):
     ops = []
     for var in var_list:
         for name in value_dict:
@@ -168,9 +168,12 @@ def set_variables(var_list, value_dict, prefix):
 
             if var.name[:-2] == var_name:
                 tf.logging.debug("restoring %s -> %s" % (name, var.name))
+                placeholder = tf.placeholder(tf.float32,
+                                             name="placeholder/" + var_name)
                 with tf.device("/cpu:0"):
-                    op = tf.assign(var, value_dict[name])
+                    op = tf.assign(var, placeholder)
                     ops.append(op)
+                feed_dict[placeholder] = value_dict[name]
                 break
 
     return ops
@@ -196,7 +199,10 @@ def shard_features(features, placeholders, predictions):
                 feed_dict[placeholders[i][name]] = shard_feat
                 n = num_shards
 
-    return predictions[:n], feed_dict
+    if isinstance(predictions, (list, tuple)):
+        predictions = [item[:n] for item in predictions]
+
+    return predictions, feed_dict
 
 
 def main(args):
@@ -241,13 +247,12 @@ def main(args):
             model_var_lists.append(values)
 
         # Build models
-        model_fns = []
+        model_list = []
 
         for i in range(len(args.checkpoints)):
             name = model_cls_list[i].get_name()
             model = model_cls_list[i](params_list[i], name + "_%d" % i)
-            model_fn = model.get_inference_func()
-            model_fns.append(model_fn)
+            model_list.append(model)
 
         params = params_list[0]
         # Read input file
@@ -272,11 +277,12 @@ def main(args):
             inference_fn = inference.create_inference_graph
 
         predictions = parallel.data_parallelism(
-            params.device_list, lambda f: inference_fn(model_fns, f, params),
+            params.device_list, lambda f: inference_fn(model_list, f, params),
             placeholders)
 
         # Create assign ops
         assign_ops = []
+        feed_dict = {}
 
         all_var_list = tf.trainable_variables()
 
@@ -289,24 +295,27 @@ def main(args):
                     un_init_var_list.append(v)
 
             ops = set_variables(un_init_var_list, model_var_lists[i],
-                                name + "_%d" % i)
+                                name + "_%d" % i, feed_dict)
             assign_ops.extend(ops)
 
         assign_op = tf.group(*assign_ops)
+        init_op = tf.tables_initializer()
         results = []
+
+        tf.get_default_graph().finalize()
 
         # Create session
         with tf.Session(config=session_config(params)) as sess:
             # Restore variables
-            sess.run(assign_op)
-            sess.run(tf.tables_initializer())
+            sess.run(assign_op, feed_dict=feed_dict)
+            sess.run(init_op)
 
             while True:
                 try:
                     feats = sess.run(features)
                     op, feed_dict = shard_features(feats, placeholders,
                                                    predictions)
-                    results.append(sess.run(predictions, feed_dict=feed_dict))
+                    results.append(sess.run(op, feed_dict=feed_dict))
                     message = "Finished batch %d" % len(results)
                     tf.logging.log(tf.logging.INFO, message)
                 except tf.errors.OutOfRangeError:

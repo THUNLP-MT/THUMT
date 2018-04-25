@@ -146,11 +146,12 @@ def random_sample(func, state, batch_size, min_length, max_length, pad_id,
     return final_seqs, final_scores
 
 
-def create_sampling_graph(model_fns, features, params):
-    if not isinstance(model_fns, (list, tuple)):
-        raise ValueError("mode_fns must be a list or tuple")
+def create_sampling_graph(models, features, params):
+    if not isinstance(models, (list, tuple)):
+        raise ValueError("'models' must be a list or tuple")
 
     features = copy.copy(features)
+    model_fns = [model.get_inference_func() for model in models]
 
     num_samples = params.num_samples
 

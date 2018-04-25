@@ -201,11 +201,12 @@ def beam_search(func, state, batch_size, beam_size, max_length, alpha,
     return final_seqs, final_scores
 
 
-def create_inference_graph(model_fns, features, params):
-    if not isinstance(model_fns, (list, tuple)):
-        raise ValueError("mode_fns must be a list or tuple")
+def create_inference_graph(models, features, params):
+    if not isinstance(models, (list, tuple)):
+        raise ValueError("'models' must be a list or tuple")
 
     features = copy.copy(features)
+    model_fns = [model.get_inference_func() for model in models]
 
     decode_length = params.decode_length
     beam_size = params.beam_size

@@ -306,7 +306,7 @@ class Transformer(interface.NMTModel):
     def __init__(self, params, scope="transformer"):
         super(Transformer, self).__init__(params=params, scope=scope)
 
-    def get_training_func(self, initializer):
+    def get_training_func(self, initializer, regularizer=None):
         def training_fn(features, params=None, reuse=None):
             if params is None:
                 params = copy.copy(self.parameters)
@@ -314,7 +314,7 @@ class Transformer(interface.NMTModel):
                 params = copy.copy(params)
 
             with tf.variable_scope(self._scope, initializer=initializer,
-                                   reuse=reuse):
+                                   regularizer=regularizer, reuse=reuse):
                 loss = model_graph(features, "train", params)
                 return loss
 
