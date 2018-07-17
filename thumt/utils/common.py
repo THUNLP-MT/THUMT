@@ -30,7 +30,7 @@ def infer_shape(x):
 
 def infer_shape_invariants(tensor):
     shape = tensor.shape.as_list()
-    for i in range(1, len(shape) - 1):
+    for i in range(len(shape) - 1):
         shape[i] = None
     return tf.TensorShape(shape)
 

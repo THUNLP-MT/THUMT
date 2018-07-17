@@ -267,7 +267,8 @@ def decoding_graph(features, state, mode, params):
         logits = tf.matmul(decoder_output, weights, False, True)
         log_prob = tf.nn.log_softmax(logits)
 
-        return log_prob, {"encoder": encoder_output, "decoder": decoder_state}
+        state["decoder"] = decoder_state
+        return log_prob, state
 
     decoder_output = tf.reshape(decoder_output, [-1, hidden_size])
     logits = tf.matmul(decoder_output, weights, False, True)
