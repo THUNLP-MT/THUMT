@@ -7,17 +7,24 @@ from __future__ import print_function
 
 import thumt.models.seq2seq
 import thumt.models.rnnsearch
+import thumt.models.rnnsearch_lrp
 import thumt.models.transformer
+import thumt.models.transformer_lrp
 
-
-def get_model(name):
+def get_model(name, lrp=False):
     name = name.lower()
 
     if name == "rnnsearch":
-        return thumt.models.rnnsearch.RNNsearch
+        if not lrp:
+            return thumt.models.rnnsearch.RNNsearch
+        else:
+            return thumt.models.rnnsearch_lrp.RNNsearch_lrp
     elif name == "seq2seq":
         return thumt.models.seq2seq.Seq2Seq
     elif name == "transformer":
-        return thumt.models.transformer.Transformer
+        if not lrp:
+            return thumt.models.transformer.Transformer
+        else:
+            return thumt.models.transformer_lrp.Transformer_lrp
     else:
         raise LookupError("Unknown model %s" % name)

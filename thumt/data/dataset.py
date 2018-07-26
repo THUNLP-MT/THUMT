@@ -308,3 +308,80 @@ def get_inference_input(inputs, params):
         features["source"] = src_table.lookup(features["source"])
 
         return features
+
+
+def get_relevance_input(inputs, outputs, params):
+    # inputs
+    dataset = tf.data.Dataset.from_tensor_slices(
+        tf.constant(inputs)
+    )
+
+    # Split string
+    dataset = dataset.map(lambda x: tf.string_split([x]).values,
+                          num_parallel_calls=params.num_threads)
+
+    # Append <eos>
+    dataset = dataset.map(
+        lambda x: tf.concat([x, [tf.constant(params.eos)]], axis=0),
+        num_parallel_calls=params.num_threads
+    )
+
+    # Convert tuple to dictionary
+    dataset = dataset.map(
+        lambda x: {"source": x, "source_length": tf.shape(x)[0]},
+        num_parallel_calls=params.num_threads
+    )
+
+    dataset = dataset.padded_batch(
+        params.decode_batch_size,
+        {"source": [tf.Dimension(None)], "source_length": []},
+        {"source": params.pad, "source_length": 0}
+    )
+
+    iterator = dataset.make_one_shot_iterator()
+    features = iterator.get_next()
+
+    src_table = tf.contrib.lookup.index_table_from_tensor(
+        tf.constant(params.vocabulary["source"]),
+        default_value=params.mapping["source"][params.unk]
+    )
+    features["source"] = src_table.lookup(features["source"])
+
+    # outputs
+    dataset_o = tf.data.Dataset.from_tensor_slices(
+        tf.constant(outputs)
+    )
+
+    # Split string
+    dataset_o = dataset_o.map(lambda x: tf.string_split([x]).values,
+                          num_parallel_calls=params.num_threads)
+
+    # Append <eos>
+    dataset_o = dataset_o.map(
+        lambda x: tf.concat([x, [tf.constant(params.eos)]], axis=0),
+        num_parallel_calls=params.num_threads
+    )
+
+    # Convert tuple to dictionary
+    dataset_o = dataset_o.map(
+        lambda x: {"target": x, "target_length": tf.shape(x)[0]},
+        num_parallel_calls=params.num_threads
+    )
+
+    dataset_o = dataset_o.padded_batch(
+        params.decode_batch_size,
+        {"target": [tf.Dimension(None)], "target_length": []},
+        {"target": params.pad, "target_length": 0}
+    )
+
+    iterator = dataset_o.make_one_shot_iterator()
+    features_o = iterator.get_next()
+
+    src_table = tf.contrib.lookup.index_table_from_tensor(
+        tf.constant(params.vocabulary["target"]),
+        default_value=params.mapping["target"][params.unk]
+    )
+    features["target"] = src_table.lookup(features_o["target"])
+    features["target_length"] = features_o["target_length"]
+
+    return features

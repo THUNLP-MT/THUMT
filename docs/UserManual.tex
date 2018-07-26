@@ -255,8 +255,8 @@ The command for translating the test set using the trained Transformer model is 
 \begin{everbatim}
 $ python THUMT/thumt/bin/translator.py --models transformer
 --input newstest2015.tc.32k.de --output newstest2015.trans
---vocabulary vocab.32k.de.txt vocab.32k.en.txt --checkpoints train/eval
---parameters=device_list=[0]
+--vocabulary vocab.32k.de.txt vocab.32k.en.txt 
+--checkpoints train/eval --parameters=device_list=[0]
 \end{everbatim}
 \\
 The commands for using RNNsearch and Seq2Seq models are similar except for the \verb|--models| argument. The translation file output by the \verb|translator.py| is \verb|newstest2015.trans|, which needs to be restored to the normal tokenization using the following command:
@@ -266,7 +266,6 @@ $ sed -r 's/(@@ )|(@@ ?$)//g' < newstest2015.trans >
 newstest2015.trans.norm
 \end{everbatim}
 \\
-
 Finally, BLEU scores \citep{Papineni:02} can be calculated using the \verb|multi-bleu.perl|\footnote{\href{https://github.com/moses-smt/mosesdecoder/blob/master/scripts/generic/multi-bleu.perl}{https://github.com/moses-smt/mosesdecoder/blob/master/scripts/generic/multi-bleu.perl}}:
 \\
 \begin{everbatim}
@@ -275,6 +274,25 @@ $ multi-bleu.perl -lc newstest2015.tc.en
 \end{everbatim}
 \\
 The resulting \verb|evalResult| stores the calculated BLEU score.
+
+\subsection{Visualizing}
+
+The command for computing the relevances between source sentences and their translation using a trained Transformer model is given by
+\\
+\begin{everbatim}
+$ python THUMT/thumt/bin/get_relevance.py --model transformer 
+--input newstest2015.tc.32k.de --output newstest2015.trans
+--vocabulary vocab.32k.de.txt vocab.32k.en.txt 
+--checkpoints train/eval --relevances lrp_newstest2015
+--parameters=device_list=[0]
+\end{everbatim}
+\\
+The command for using RNNsearch model is similar except for the \verb|--models| argument. The relevance matrix of each sentence pair is stored in an individual file in the directory \verb|lrp_newstest2015|. To visualize the relevance between the n-th sentence and its translation, use the following command:
+\\
+\begin{everbatim}
+$ python THUMT/thumt/scripts/visualize.py lrp_newstest2015/n
+\end{everbatim}
+\\
 
 \section{FAQ}
 
