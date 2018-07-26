@@ -130,7 +130,7 @@ def _add_to_record(records, record, max_to_keep):
     return added, removed, records
 
 
-def _evaluate(eval_fn, input_fn, decode_fn, path, config):
+def _evaluate(eval_fn, input_fn, decode_fn, path, config, restore_bpe):
     graph = tf.Graph()
     with graph.as_default():
         features = input_fn()
@@ -168,6 +168,10 @@ def _evaluate(eval_fn, input_fn, decode_fn, path, config):
                     all_refs[i].extend(references[i])
 
         decoded_symbols = decode_fn(all_outputs)
+        if restore_bpe:
+            for i, l in enumerate(decoded_symbols):
+                decoded_symbols[i] = ' '.join(l).replace('@@ ', '').split()
+
         decoded_refs = [decode_fn(refs) for refs in all_refs]
         decoded_refs = [list(x) for x in zip(*decoded_refs)]
 
@@ -181,7 +185,7 @@ class EvaluationHook(tf.train.SessionRunHook):
 
     def __init__(self, eval_fn, eval_input_fn, eval_decode_fn, base_dir,
                  session_config, max_to_keep=5, eval_secs=None,
-                 eval_steps=None, metric="BLEU"):
+                 eval_steps=None, metric="BLEU", restore_bpe=False):
         """ Initializes a `EvaluationHook`.
         :param eval_fn: A function with signature (feature)
         :param eval_input_fn: A function with signature ()
@@ -214,6 +218,7 @@ class EvaluationHook(tf.train.SessionRunHook):
         self._timer = tf.train.SecondOrStepTimer(
             every_secs=eval_secs or None, every_steps=eval_steps or None
         )
+        self._restore_bpe = restore_bpe
 
     def begin(self):
         if self._timer.last_triggered_step() is None:
@@ -263,7 +268,8 @@ class EvaluationHook(tf.train.SessionRunHook):
                 score = _evaluate(self._eval_fn, self._eval_input_fn,
                                   self._eval_decode_fn,
                                   self._base_dir,
-                                  self._session_config)
+                                  self._session_config,
+                                  self._restore_bpe)
                 tf.logging.info("%s at step %d: %f" %
                                 (self._metric, global_step, score))
 
@@ -316,7 +322,8 @@ class EvaluationHook(tf.train.SessionRunHook):
             score = _evaluate(self._eval_fn, self._eval_input_fn,
                               self._eval_decode_fn,
                               self._base_dir,
-                              self._session_config)
+                              self._session_config,
+                              self._restore_bpe)
             tf.logging.info("%s at step %d: %f" %
                             (self._metric, global_step, score))
 

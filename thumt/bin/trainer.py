@@ -100,6 +100,7 @@ def default_parameters():
         references=[""],
         save_checkpoint_secs=0,
         save_checkpoint_steps=1000,
+        restore_bpe = False,
         # Setting this to True can save disk spaces, but cannot restore
         # training using the saved checkpoint
         only_save_trainable=False
@@ -442,7 +443,8 @@ def main(args):
                     config,
                     params.keep_top_checkpoint_max,
                     eval_secs=params.eval_secs,
-                    eval_steps=params.eval_steps
+                    eval_steps=params.eval_steps,
+                    restore_bpe = params.restore_bpe
                 )
             )
 
