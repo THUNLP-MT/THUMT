@@ -28,7 +28,7 @@ The following table summarizes the features of two implementations:
 | Implementation | Model | Criterion | Optimizer | LRP |
 | :------------: | :---: | :--------------: | :--------------: | :----------------: |
 | Theano       |  RNNsearch | MLE, MRT, SST | SGD, AdaDelta, Adam | RNNsearch |   
-| TensorFlow   |  Seq2Seq, RNNsearch, Transformer | MLE| Adam |n/a |
+| TensorFlow   |  Seq2Seq, RNNsearch, Transformer | MLE| Adam | RNNsearch, Transformer |
 
 We recommend using [THUMT-TensorFlow](https://github.com/thumt/THUMT), which delivers better translation performance than [THUMT-Theano](https://github.com/thumt/THUMT/tree/theano). We will keep adding new features to [THUMT-TensorFlow](https://github.com/thumt/THUMT).
 
