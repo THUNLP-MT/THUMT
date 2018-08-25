@@ -187,17 +187,16 @@ def shard_features(features, placeholders, predictions):
     for name in features:
         feat = features[name]
         batch = feat.shape[0]
+        shard_size = (batch + num_shards - 1) // num_shards
 
-        if batch < num_shards:
-            feed_dict[placeholders[0][name]] = feat
-            n = 1
-        else:
-            shard_size = (batch + num_shards - 1) // num_shards
+        for i in range(num_shards):
+            shard_feat = feat[i * shard_size:(i + 1) * shard_size]
 
-            for i in range(num_shards):
-                shard_feat = feat[i * shard_size:(i + 1) * shard_size]
+            if shard_feat.shape[0] != 0:
                 feed_dict[placeholders[i][name]] = shard_feat
-                n = num_shards
+                n = i + 1
+            else:
+                break
 
     if isinstance(predictions, (list, tuple)):
         predictions = [item[:n] for item in predictions]
