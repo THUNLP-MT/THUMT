@@ -358,7 +358,6 @@ def main(args):
 
                     if not args.verbose:
                         outfile.write("%s\n" % decoded)
-                        break
                     else:
                         pattern = "%d ||| %s ||| %s ||| %f\n"
                         source = restored_inputs[count]
