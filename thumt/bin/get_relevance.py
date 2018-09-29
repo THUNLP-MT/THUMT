@@ -19,6 +19,7 @@ import thumt.data.dataset as dataset
 import thumt.data.vocab as vocabulary
 import thumt.models as models
 
+np.set_printoptions(threshold=np.inf)
 
 def to_text(vocab, mapping, indice, params):
     decoded = []
