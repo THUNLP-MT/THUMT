@@ -5,7 +5,7 @@
 * [License](#license)
 * [Citation](#citation)
 * [Development Team](#development-team)
-* [Contributors](#Contributors)
+* [Contributors](#contributors)
 * [Contact](#contact)
 
 ## Introduction
