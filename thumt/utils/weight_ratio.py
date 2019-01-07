@@ -1,6 +1,6 @@
 # coding=utf-8
 # Code modified from Tensor2Tensor library
-# Copyright 2018 The THUMT Authors
+# Copyright 2017-2019 The THUMT Authors
 
 from __future__ import absolute_import
 from __future__ import division
@@ -71,13 +71,13 @@ def weight_ratio_linear(inputs, weights, output, bias=None, stab=0):
     output = tf.reshape(output, [-1, output.shape[-1].value])
 
     weight_ratios = []
-    
+
     for i in range(len(inputs)):
         r = tf.expand_dims(inputs[i],-1) * tf.expand_dims(weights[i], -3)
         w = r / tf.expand_dims(stabilize(output, stab), -2)
         weight_ratios.append(w)
 
-    weight_ratios = [tf.reshape(wr, os) 
+    weight_ratios = [tf.reshape(wr, os)
                      for os, wr in zip(output_shape,weight_ratios)]
 
     return weight_ratios
@@ -122,7 +122,7 @@ def weight_ratio_maxpool(input, output, maxnum, flatten=False):
     weight_shape = tf.concat([tf.shape(input), tf.shape(output)[-1:]], axis=-1)
     input = tf.reshape(input, [-1, input.shape[-1].value])
     output = tf.reshape(output, [-1, output.shape[-1].value])
-    
+
     shape_inp = tf.shape(input)
     batch = shape_inp[0]
     dim_in = shape_inp[-1]
@@ -136,11 +136,11 @@ def weight_ratio_maxpool(input, output, maxnum, flatten=False):
     pos = tf.reshape(pos, [-1])
     if flatten:
         indices = tf.range(tf.shape(pos)[0]) * maxnum + pos
-        weight_ratio = tf.sparse_to_dense(indices, [batch * dim_in], 
+        weight_ratio = tf.sparse_to_dense(indices, [batch * dim_in],
                                           tf.ones(tf.shape(indices)))
         weight_ratio = tf.reshape(weight_ratio, weight_shape[:-1])
     else:
-        indices = dim_out * pos + dim_in * tf.range(batch * dim_out, 
+        indices = dim_out * pos + dim_in * tf.range(batch * dim_out,
                                                     dtype=tf.int32)
         indices = tf.reshape(indices, [-1,dim_out])
         indices += tf.expand_dims(tf.range(dim_out, dtype=tf.int32), 0)

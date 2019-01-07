@@ -1,6 +1,6 @@
 # coding=utf-8
 # Code modified from Tensor2Tensor library
-# Copyright 2018 The THUMT Authors
+# Copyright 2017-2019 The THUMT Authors
 
 from __future__ import absolute_import
 from __future__ import division
@@ -79,8 +79,8 @@ def weighted_sum(inputs, weights, params, flatten=False):
     assert len(inputs) == len(weights)
     output = tf.add_n([inputs[i] * weights[i] for i in range(len(inputs))])
 
-    weight_ratios = wr.weight_ratio_weighted_sum(inputs, weights, output, 
-                                                 stab=params.stab, 
+    weight_ratios = wr.weight_ratio_weighted_sum(inputs, weights, output,
+                                                 stab=params.stab,
                                                  flatten=flatten)
 
     return {"output": output, "weight_ratios": weight_ratios}
@@ -91,23 +91,23 @@ def maxpool(input, output_size, params, flatten=False):
                       axis=0)
     value = tf.reshape(input, shape)
     output = tf.reduce_max(value, -1)
-    weight_ratio = wr.weight_ratio_maxpool(input, output, params.maxnum, 
+    weight_ratio = wr.weight_ratio_maxpool(input, output, params.maxnum,
                                            flatten=flatten)
     return {"output": output, "weight_ratio": weight_ratio}
 
 
-def weight_ratio_linear_v2n_2d(inputs, weights, output, w_x_inp, bias=None, 
+def weight_ratio_linear_v2n_2d(inputs, weights, output, w_x_inp, bias=None,
                                stab=0):
     inputs_ex = [tf.expand_dims(inp, 1) for inp in inputs]
     output_ex = tf.expand_dims(output, 1)
     w_x_inp_ex = [tf.expand_dims(w, 2) for w in w_x_inp]
-    result = weight_ratio_linear_v2n(inputs_ex, weights, output_ex, 
+    result = weight_ratio_linear_v2n(inputs_ex, weights, output_ex,
                                     w_x_inp_ex, bias=bias, stab=stab)
     result = [tf.squeeze(res, 2) for res in result]
     return result
 
 
-def weight_ratio_linear_v2n(inputs, weights, output, w_x_inp, bias=None, 
+def weight_ratio_linear_v2n(inputs, weights, output, w_x_inp, bias=None,
                             stab=0):
     '''
         inputs: [(bs, lq, di)]
@@ -120,25 +120,25 @@ def weight_ratio_linear_v2n(inputs, weights, output, w_x_inp, bias=None,
     assert len(inputs) == len(weights)
     weight_ratios = []
     bs = tf.shape(w_x_inp[0])[0]
-    lq = tf.shape(w_x_inp[0])[2] 
+    lq = tf.shape(w_x_inp[0])[2]
     outp = tf.expand_dims(stabilize(output, stab), 1)
     outp = tf.reshape(outp, [bs,1,lq,-1])
-    
+
     for i in range(len(inputs)):
-        di = tf.shape(w_x_inp[i])[3] 
+        di = tf.shape(w_x_inp[i])[3]
         ls = tf.shape(w_x_inp[i])[1]
         inp = tf.reshape(inputs[i], [bs,1,lq,-1])
-        w = w_x_inp[i] * inp 
-        w = tf.reshape(w, [-1, di]) 
+        w = w_x_inp[i] * inp
+        w = tf.reshape(w, [-1, di])
         w = tf.matmul(w, weights[i])
-        w = tf.reshape(w, [bs, ls, lq, -1]) 
+        w = tf.reshape(w, [bs, ls, lq, -1])
         w = w / outp
         weight_ratios.append(w)
 
     return weight_ratios
 
 
-def linear_v2n(inputs, output_size, bias, w_x_inp, params, concat=False, 
+def linear_v2n(inputs, output_size, bias, w_x_inp, params, concat=False,
                dtype=None, scope=None, d2=False):
     """
     Linear layer
@@ -202,10 +202,10 @@ def linear_v2n(inputs, output_size, bias, w_x_inp, params, concat=False,
         if d2:
             operator = weight_ratio_linear_v2n_2d
         if concat:
-            weight_ratios = operator([inputs], [matrix], output, w_x_inp, 
+            weight_ratios = operator([inputs], [matrix], output, w_x_inp,
                                      bias=bias, stab=params.stab)
         else:
-            weight_ratios = operator(inputs, matrixs, output, w_x_inp, 
+            weight_ratios = operator(inputs, matrixs, output, w_x_inp,
                                      bias=bias, stab=params.stab)
 
         output = tf.reshape(output, output_shape)
@@ -213,7 +213,7 @@ def linear_v2n(inputs, output_size, bias, w_x_inp, params, concat=False,
         return {"output":output, "weight_ratios": weight_ratios}
 
 
-def maxout_v2n(inputs, output_size, maxpart, w, params, use_bias=True, 
+def maxout_v2n(inputs, output_size, maxpart, w, params, use_bias=True,
                concat=True, dtype=None, scope=None):
     """
     Maxout layer
@@ -232,14 +232,14 @@ def maxout_v2n(inputs, output_size, maxpart, w, params, use_bias=True,
     w_x_dec = tf.transpose(w_x_dec, [1, 2, 0, 3])
     w_x_ctx = tf.transpose(w_x_ctx, [1, 2, 0, 3])
     w_x_y = tf.zeros(tf.shape(w_x_dec), dtype=tf.float32)
-    candidate_linear = linear_v2n(inputs, output_size * maxpart, use_bias, 
+    candidate_linear = linear_v2n(inputs, output_size * maxpart, use_bias,
                                   [w_x_y, w_x_dec, w_x_ctx], params, concat,
                                   dtype=dtype, scope=scope or "maxout")
     candidate = candidate_linear["output"]
     _, w_x_dec_readout, w_x_ctx_readout = candidate_linear["weight_ratios"]
     w_x_readout = w_x_dec_readout + w_x_ctx_readout
     w_x_readout = tf.transpose(w_x_readout, [0, 2, 1, 3])
-    
+
     output_maxout = maxpool(candidate, output_size, params)
     output = output_maxout["output"]
 
@@ -248,7 +248,7 @@ def maxout_v2n(inputs, output_size, maxpart, w, params, use_bias=True,
 
     #propagate
     propagater = tf.matmul
-    
+
     w_x_maxout = propagater(w_x_readout, w_readout_maxout)
 
     weight_ratios = [w_x_maxout]
@@ -278,12 +278,12 @@ class LegacyGRUCell_encoder_v2n(tf.nn.rnn_cell.RNNCell):
             emb = tf.shape(inputs)[-1]
             w_x_x = tf.ones([bs,1,emb], dtype=tf.float32)
             all_inputs = list(inputs) + [state]
-            r_linear = linear_v2n(all_inputs, self._num_units, False, 
+            r_linear = linear_v2n(all_inputs, self._num_units, False,
                                   [w_x_x, w_x_h_last], params, False,
                                   scope="reset_gate", d2=True)
             w_x_r, w_xlast_r = r_linear["weight_ratios"]
             r = tf.nn.sigmoid(r_linear["output"])
-            u_linear = linear_v2n(all_inputs, self._num_units, False, 
+            u_linear = linear_v2n(all_inputs, self._num_units, False,
                                   [w_x_x, w_x_h_last], params, False,
                                   scope="update_gate", d2=True)
             w_x_u, w_xlast_u = u_linear["weight_ratios"]
@@ -292,15 +292,15 @@ class LegacyGRUCell_encoder_v2n(tf.nn.rnn_cell.RNNCell):
             reseted = r * state
             w_x_reseted = w_x_r
             w_xlast_reseted = w_xlast_r
-            
+
             w_tx_reseted = tf.concat([w_x_reseted, w_xlast_reseted], 1)
             all_inputs = list(inputs) + [reseted]
-            c_linear = linear_v2n(all_inputs, self._num_units, True, 
+            c_linear = linear_v2n(all_inputs, self._num_units, True,
                                   [w_x_x, w_tx_reseted], params, False,
                                   scope="candidate", d2=True)
             w_x_c_direct, w_tx_reseted_c = c_linear["weight_ratios"]
-            w_x_reseted_c, w_xlast_c = tf.split(w_tx_reseted_c, 
-                                        [1, tf.shape(w_tx_reseted_c)[1]-1], 
+            w_x_reseted_c, w_xlast_c = tf.split(w_tx_reseted_c,
+                                        [1, tf.shape(w_tx_reseted_c)[1]-1],
                                         axis=1)
             w_x_c = w_x_c_direct + w_x_reseted_c
             c = c_linear["output"]
@@ -349,25 +349,25 @@ class LegacyGRUCell_decoder_v2n(tf.nn.rnn_cell.RNNCell):
             all_inputs = list(inputs) + [state]
             w_x_h = w_x_h_last
             w_x_ctx = w_x_c
-            r_linear = linear_v2n(all_inputs, self._num_units, False, 
+            r_linear = linear_v2n(all_inputs, self._num_units, False,
                                   [w_x_y, w_x_c, w_x_h_last], params, False,
                                   scope="reset_gate", d2=True)
-            _, w_x_ctx_r, w_x_h_r = r_linear["weight_ratios"] 
+            _, w_x_ctx_r, w_x_h_r = r_linear["weight_ratios"]
             w_x_r = w_x_ctx_r + w_x_h_r
             r = tf.nn.sigmoid(r_linear["output"])
 
             u_linear = linear_v2n(all_inputs, self._num_units, False,
                                   [w_x_y, w_x_c, w_x_h_last], params, False,
                                   scope="update_gate", d2=True)
-            _, w_x_ctx_u, w_x_h_u = u_linear["weight_ratios"] 
+            _, w_x_ctx_u, w_x_h_u = u_linear["weight_ratios"]
             w_x_u = w_x_ctx_u + w_x_h_u
             u = tf.nn.sigmoid(u_linear["output"])
 
             reseted = r * state
             w_x_reseted = 0.5 * w_x_r + 0.5 * w_x_h
-            
+
             all_inputs = list(inputs) + [reseted]
-            c_linear = linear_v2n(all_inputs, self._num_units, True, 
+            c_linear = linear_v2n(all_inputs, self._num_units, True,
                                   [w_x_y, w_x_c, w_x_reseted], params, False,
                                   scope="candidate", d2=True)
             _, w_x_c_state, w_x_resetes_state = c_linear["weight_ratios"]
@@ -474,23 +474,23 @@ def layer_norm(inputs, w_x_inp, params, epsilon=1e-6, dtype=None, scope=None):
         norm_inputs = averaged * tf.rsqrt(variance + epsilon)
 
         w_inp_mean = wr.weight_ratio_mean(inputs, mean, stab=params.stab)
-        w_inp_out, w_mean_out = wr.weight_ratio_weighted_sum([inputs, mean], 
-                                                             [1.,-1.], 
-                                                             averaged, 
-                                                             stab=params.stab, 
+        w_inp_out, w_mean_out = wr.weight_ratio_weighted_sum([inputs, mean],
+                                                             [1.,-1.],
+                                                             averaged,
+                                                             stab=params.stab,
                                                              flatten=True)
         w_x_mean = tf.reduce_sum(w_x_inp * tf.expand_dims(w_inp_mean, 1), -1)
         w_inp_out = tf.expand_dims(w_inp_out, 1)
         w_mean_out = tf.expand_dims(w_mean_out, 1)
-        w_x_out = w_x_inp * w_inp_out 
+        w_x_out = w_x_inp * w_inp_out
         w_x_out += tf.expand_dims(w_x_mean, -1) * w_mean_out
 
-        return {"outputs":norm_inputs * scale + offset, 
+        return {"outputs":norm_inputs * scale + offset,
                 "weight_ratios": w_x_out}
 
-def multihead_attention_v2n(queries, memories, bias, w_x_inp, num_heads, 
-                            key_size, value_size, output_size, params, 
-                            keep_prob=None, output=True, dtype=None, 
+def multihead_attention_v2n(queries, memories, bias, w_x_inp, num_heads,
+                            key_size, value_size, output_size, params,
+                            keep_prob=None, output=True, dtype=None,
                             scope=None):
     """ Multi-head scaled-dot-product attention with input/output
         transformations.
@@ -533,17 +533,17 @@ def multihead_attention_v2n(queries, memories, bias, w_x_inp, num_heads,
         if memories is None:
             # self attention
             size = key_size * 2 + value_size
-            combined_linear = linear_v2n(queries, size, True, [w_x_inp], 
+            combined_linear = linear_v2n(queries, size, True, [w_x_inp],
                                          params, True, scope="qkv_transform")
             combined = combined_linear["output"]
             q, k, v = tf.split(combined, [key_size, key_size, value_size],
                                axis=-1)
             w_x_combined = combined_linear["weight_ratios"][0]
-            w_x_q, w_x_k, w_x_v = tf.split(w_x_combined, 
+            w_x_q, w_x_k, w_x_v = tf.split(w_x_combined,
                                            [key_size, key_size, value_size],
                                            axis=-1)
         else:
-            q = nn.linear(queries, key_size, True, params, True, 
+            q = nn.linear(queries, key_size, True, params, True,
                           scope="q_transform")
             combined_linear = linear_v2n(memories, key_size + value_size, True,
                                          [w_x_inp], params, True,
@@ -574,13 +574,13 @@ def multihead_attention_v2n(queries, memories, bias, w_x_inp, num_heads,
         w_x_v = tf.transpose(w_x_v, [0, 1, 3, 2, 4])
         w_x_v = tf.reshape(w_x_v, [bs, num_heads, tf.shape(w_x_v)[2], -1])
         w_x_att = tf.matmul(weights, w_x_v)
-        w_x_att = tf.reshape(w_x_att, 
+        w_x_att = tf.reshape(w_x_att,
                         [bs, num_heads, len_q, len_src, key_depth_per_head])
         w_x_att = tf.transpose(w_x_att, [0, 1, 3, 2, 4])
         w_x_att = combine_heads_v2n(w_x_att)
 
         if output:
-            outputs_linear = linear_v2n(x, output_size, True, [w_x_att], 
+            outputs_linear = linear_v2n(x, output_size, True, [w_x_att],
                                         params, True,
                                         scope="output_transform")
             outputs = outputs_linear["output"]

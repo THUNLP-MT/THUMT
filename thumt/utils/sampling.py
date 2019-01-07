@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The THUMT Authors
+# Copyright 2017-2019 The THUMT Authors
 
 from __future__ import absolute_import
 from __future__ import division
@@ -62,13 +62,14 @@ def _sampling_step(time, func, state, min_length, max_length, pad_id, eos_id):
     add_mask = tf.one_hot(eos_id, vocab_size, dtype=step_log_probs.dtype,
                           on_value=step_log_probs.dtype.min,
                           off_value=0.0)
-    add_mask = tf.tile(tf.reshape(add_mask, [1, -1]), [batch_size, 1])
+    add_mask = utils.tile_batch(tf.reshape(add_mask, [1, -1]), batch_size)
     add_mask = tf.where(time < min_length, add_mask, tf.zeros_like(add_mask))
     step_log_probs = step_log_probs + add_mask
 
     # sample from distribution
     symbol_indices = tf.multinomial(step_log_probs, 1, output_dtype=tf.int32)
-    symbol_scores = tf.squeeze(utils.gather_2d(step_log_probs, symbol_indices))
+    symbol_scores = tf.squeeze(utils.gather_2d(step_log_probs, symbol_indices),
+                               axis=1)
     curr_flags = tf.squeeze(tf.equal(symbol_indices, eos_id), axis=1)
     curr_flags = tf.logical_or(state.flags, curr_flags)
 
@@ -82,7 +83,8 @@ def _sampling_step(time, func, state, min_length, max_length, pad_id, eos_id):
     eos_flags = tf.where(time > max_length, tf.ones([batch_size], tf.bool),
                          tf.zeros([batch_size], tf.bool))
     eos_scores = tf.squeeze(utils.gather_2d(step_log_probs,
-                                            tf.fill([batch_size, 1], eos_id)))
+                                            tf.fill([batch_size, 1], eos_id)),
+                            axis=1)
     eos_indices = tf.fill([batch_size, 1], eos_id)
     cond = tf.logical_and(tf.logical_not(curr_flags), eos_flags)
     curr_flags = tf.logical_or(curr_flags, eos_flags)
@@ -176,9 +178,9 @@ def create_sampling_graph(models, features, params):
     eos_id = params.mapping["target"][params.eos]
 
     # Expand the inputs
-    features["source"] = tf.tile(features["source"], [num_samples, 1])
-    features["source_length"] = tf.tile(features["source_length"],
-                                        [num_samples])
+    features["source"] = utils.tile_batch(features["source"], num_samples)
+    features["source_length"] = utils.tile_batch(features["source_length"],
+                                                 num_samples)
 
     min_length = tf.to_float(features["source_length"])
     max_length = tf.to_float(features["source_length"])

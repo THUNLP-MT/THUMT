@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The THUMT Authors
+# Copyright 2017-2019 The THUMT Authors
 
 from __future__ import absolute_import
 from __future__ import division
@@ -58,10 +58,14 @@ def tile_to_beam_size(tensor, beam_size):
 
 
 def tile_batch(tensor, batch_size):
-    tile_dims = [1] * tensor.shape.ndims
-    tile_dims[0] = batch_size
+    shape = infer_shape(tensor)
+    tile_dims = [1] * (tensor.shape.ndims + 1)
+    tile_dims[1] = batch_size
 
-    return tf.tile(tensor, tile_dims)
+    tensor = tf.tile(tf.expand_dims(tensor, axis=1), tile_dims)
+    shape[0] = shape[0] * batch_size
+
+    return tf.reshape(tensor, shape)
 
 
 def gather_2d(params, indices, name=None):

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The THUMT Authors
+# Copyright 2017-2019 The THUMT Authors
 
 from __future__ import absolute_import
 from __future__ import division
@@ -10,6 +10,7 @@ import thumt.models.rnnsearch
 import thumt.models.rnnsearch_lrp
 import thumt.models.transformer
 import thumt.models.transformer_lrp
+
 
 def get_model(name, lrp=False):
     name = name.lower()

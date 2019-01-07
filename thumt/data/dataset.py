@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The THUMT Authors
+# Copyright 2017-2019 The THUMT Authors
 
 from __future__ import absolute_import
 from __future__ import division
@@ -271,6 +271,11 @@ def get_evaluation_input(inputs, params):
 
 
 def get_inference_input(inputs, params):
+    if params.generate_samples:
+        batch_size = params.sample_batch_size
+    else:
+        batch_size = params.decode_batch_size
+
     with tf.device("/cpu:0"):
         dataset = tf.data.Dataset.from_tensor_slices(
             tf.constant(inputs)
@@ -293,7 +298,7 @@ def get_inference_input(inputs, params):
         )
 
         dataset = dataset.padded_batch(
-            params.decode_batch_size * len(params.device_list),
+            batch_size * len(params.device_list),
             {"source": [tf.Dimension(None)], "source_length": []},
             {"source": params.pad, "source_length": 0}
         )

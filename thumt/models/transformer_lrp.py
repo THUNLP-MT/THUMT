@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The THUMT Authors
+# Copyright 2017-2019 The THUMT Authors
 
 from __future__ import absolute_import
 from __future__ import division
@@ -21,7 +21,7 @@ def normalize(matrix, negative=False):
     else:
         matrix = tf.abs(matrix)
         total = tf.reduce_sum(matrix, -1)
-        return matrix / tf.expand_dims(total, -1) 
+        return matrix / tf.expand_dims(total, -1)
 
 
 def get_weights(params):
@@ -79,11 +79,11 @@ def residual_fn(x, y, w_x_last, w_x_inp, params, keep_prob=None):
     x_down = tf.reshape(x, [batchsize, -1])
     y_down = tf.reshape(y, [batchsize, -1])
     z_down = tf.reshape(result["output"], [batchsize, -1])
-    
-    w_last_out, w_inp_out = wr.weight_ratio_weighted_sum([x_down,y_down], 
-                                                         [1.,1.], 
-                                                         z_down, 
-                                                         stab=params.stab, 
+
+    w_last_out, w_inp_out = wr.weight_ratio_weighted_sum([x_down,y_down],
+                                                         [1.,1.],
+                                                         z_down,
+                                                         stab=params.stab,
                                                          flatten=True)
     # bs, len*d
     w_last_out = tf.reshape(w_last_out, [batchsize, 1, len_inp, dim])
@@ -93,12 +93,12 @@ def residual_fn(x, y, w_x_last, w_x_inp, params, keep_prob=None):
     return result
 
 
-def ffn_layer(inputs, w_x_inp, hidden_size, output_size, params, 
+def ffn_layer(inputs, w_x_inp, hidden_size, output_size, params,
               keep_prob=None, dtype=None, scope=None):
     with tf.variable_scope(scope, default_name="ffn_layer", values=[inputs],
                            dtype=dtype):
         with tf.variable_scope("input_layer"):
-            hidden_linear = lrp.linear_v2n(inputs, hidden_size, True, 
+            hidden_linear = lrp.linear_v2n(inputs, hidden_size, True,
                                            [w_x_inp], params, True)
             hidden = hidden_linear["output"]
             w_x_hid = hidden_linear["weight_ratios"][0]
@@ -108,7 +108,7 @@ def ffn_layer(inputs, w_x_inp, hidden_size, output_size, params,
             hidden = tf.nn.dropout(hidden, keep_prob)
 
         with tf.variable_scope("output_layer"):
-            output_linear = lrp.linear_v2n(hidden, output_size, True, 
+            output_linear = lrp.linear_v2n(hidden, output_size, True,
                                            [w_x_hid], params, True)
             output = output_linear["output"]
             w_x_outp = output_linear["weight_ratios"][0]
@@ -142,12 +142,12 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                     y = y_self["outputs"]
                     w_x_self = y_self["weight_ratio"]
 
-                    x_res = residual_fn(x, y, w_x_last, w_x_self, params, 
+                    x_res = residual_fn(x, y, w_x_last, w_x_self, params,
                                         1.0 - params.residual_dropout)
                     x = x_res["output"]
                     w_x_selfres = x_res["weight_ratio"]
 
-                    x_norm = lrp.layer_process(x, params.layer_postprocess, 
+                    x_norm = lrp.layer_process(x, params.layer_postprocess,
                                                w_x_selfres, params)
                     x = x_norm["outputs"]
                     w_x_selfres = x_norm["weight_ratios"]
@@ -164,12 +164,12 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                     y = y_ffn["output"]
                     w_x_ffn = y_ffn["weight_ratios"]
 
-                    x_res = residual_fn(x, y, w_x_selfres, w_x_ffn, params, 
+                    x_res = residual_fn(x, y, w_x_selfres, w_x_ffn, params,
                                         1.0 - params.residual_dropout)
                     x = x_res["output"]
                     w_x_ffnres = x_res["weight_ratio"]
 
-                    x_norm = lrp.layer_process(x, params.layer_postprocess, 
+                    x_norm = lrp.layer_process(x, params.layer_postprocess,
                                                w_x_ffnres, params)
                     x = x_norm["outputs"]
                     w_x_ffnres = x_norm["weight_ratios"]
@@ -180,7 +180,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
         return {"outputs": outputs, "weight_ratios": w_x_last}
 
 
-def transformer_decoder(inputs, memory, bias, mem_bias, w_x_enc, params, 
+def transformer_decoder(inputs, memory, bias, mem_bias, w_x_enc, params,
                         dtype=None, scope=None):
     with tf.variable_scope(scope, default_name="decoder", dtype=dtype,
                            values=[inputs, memory, bias, mem_bias]):
@@ -189,7 +189,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, w_x_enc, params,
         batchsize = tf.shape(inputs)[0]
         dim = tf.shape(inputs)[2]
         x = inputs
-        w_x_last = tf.zeros([batchsize, len_src, len_trg, dim], 
+        w_x_last = tf.zeros([batchsize, len_src, len_trg, dim],
                             dtype=tf.float32)
         for layer in range(params.num_decoder_layers):
             with tf.variable_scope("layer_%d" % layer):
@@ -209,12 +209,12 @@ def transformer_decoder(inputs, memory, bias, mem_bias, w_x_enc, params,
                     y = y_self["outputs"]
                     w_x_self = y_self["weight_ratio"]
 
-                    x_res = residual_fn(x, y,w_x_last,w_x_self,params, 
+                    x_res = residual_fn(x, y,w_x_last,w_x_self,params,
                                         1.0 - params.residual_dropout)
                     x = x_res["output"]
                     w_x_selfres = x_res["weight_ratio"]
 
-                    x_norm = lrp.layer_process(x, params.layer_postprocess, 
+                    x_norm = lrp.layer_process(x, params.layer_postprocess,
                                                w_x_selfres, params)
                     x = x_norm["outputs"]
                     w_x_selfres = x_norm["weight_ratios"]
@@ -235,12 +235,12 @@ def transformer_decoder(inputs, memory, bias, mem_bias, w_x_enc, params,
                     y = y_encdec["outputs"]
                     w_x_encdec = y_encdec["weight_ratio"]
 
-                    x_res = residual_fn(x, y, w_x_selfres, w_x_encdec, params, 
+                    x_res = residual_fn(x, y, w_x_selfres, w_x_encdec, params,
                                         1.0 - params.residual_dropout)
                     x = x_res["output"]
                     w_x_encdecres = x_res["weight_ratio"]
 
-                    x_norm = lrp.layer_process(x, params.layer_postprocess, 
+                    x_norm = lrp.layer_process(x, params.layer_postprocess,
                                                w_x_encdecres, params)
                     x = x_norm["outputs"]
                     w_x_encdecres = x_norm["weight_ratios"]
@@ -257,7 +257,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, w_x_enc, params,
                     y = y_ffn["output"]
                     w_x_ffn = y_ffn["weight_ratios"]
 
-                    x_res = residual_fn(x, y, w_x_encdecres, w_x_ffn, params, 
+                    x_res = residual_fn(x, y, w_x_encdecres, w_x_ffn, params,
                                         1.0 - params.residual_dropout)
                     x = x_res["output"]
                     w_x_ffnres = x_res["weight_ratio"]
@@ -319,7 +319,7 @@ def model_graph(features, labels, mode, params):
     encoder_output = encoder_out["outputs"]
     w_x_enc = encoder_out["weight_ratios"]
     decoder_out = transformer_decoder(decoder_input, encoder_output,
-                                      dec_attn_bias, enc_attn_bias, 
+                                      dec_attn_bias, enc_attn_bias,
                                       w_x_enc, params)
     decoder_output = decoder_out["outputs"]
     w_x_dec = decoder_out["weight_ratios"]
@@ -328,7 +328,7 @@ def model_graph(features, labels, mode, params):
     logits_elewise_true = decoder_output * weights_true
     logits_true = tf.reduce_sum(logits_elewise_true, -1)
     logits_stab = lrp.stabilize(tf.expand_dims(logits_true, -1), params.stab)
-    wr_logit_decoder = logits_elewise_true / logits_stab 
+    wr_logit_decoder = logits_elewise_true / logits_stab
     w_x_true = w_x_dec * tf.expand_dims(wr_logit_decoder, 1)
     w_x_true = tf.reduce_sum(w_x_true, -1)
     # inference mode, take the last position

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The THUMT Authors
+# Copyright 2017-2019 The THUMT Authors
 
 from __future__ import absolute_import
 from __future__ import division
@@ -16,11 +16,11 @@ def normalize(matrix, negative=False):
     if negative:
         matrix_abs = tf.abs(matrix)
         total = tf.reduce_sum(matrix_abs, -1)
-        return matrix / tf.expand_dims(total, -1) 
+        return matrix / tf.expand_dims(total, -1)
     else:
         matrix = tf.abs(matrix)
         total = tf.reduce_sum(matrix, -1)
-        return matrix / tf.expand_dims(total, -1) 
+        return matrix / tf.expand_dims(total, -1)
 
 
 def stabilize(matrix, stab):
@@ -65,7 +65,7 @@ def _gru_encoder(cell, inputs, sequence_length, initial_state, params,
     def loop_func(t, out_ta, state, wxh_ta, w_x_h_last):
         inp_t = input_ta.read(t)
         cell_output, new_state, w_xlast_newh, w_x_newh = cell(inp_t, state,
-                                                              w_x_h_last, 
+                                                              w_x_h_last,
                                                               params)
         w_x_newh = tf.pad(w_x_newh, [[0,0], [t, time_steps - t - 1], [0,0]])
         w_x_h_new = w_xlast_newh + w_x_newh
@@ -127,13 +127,13 @@ def _encoder(cell_fw, cell_bw, inputs, sequence_length, params, dtype=None,
                 "forward": state_fw,
                 "backward": state_bw
             },
-            "weight_ratios": [w_x_h_fw, w_x_h_bw] 
+            "weight_ratios": [w_x_h_fw, w_x_h_bw]
         }
 
         return results
 
 
-def _decoder(cell, inputs, memory, sequence_length, initial_state, w_x_enc, 
+def _decoder(cell, inputs, memory, sequence_length, initial_state, w_x_enc,
              w_x_bw, params, dtype=None, scope=None):
     # Assume that the underlying cell is GRUCell-like
     batch = tf.shape(inputs)[0]
@@ -162,14 +162,14 @@ def _decoder(cell, inputs, memory, sequence_length, initial_state, w_x_enc,
                                   tensor_array_name="alpha_array")
         input_ta = input_ta.unstack(inputs)
 
-        len_src = tf.shape(w_x_bw)[0]        
+        len_src = tf.shape(w_x_bw)[0]
         w_x_bw_ta = tf.TensorArray(tf.float32, len_src,
                                    tensor_array_name="w_x_bw_array")
-        
+
         w_x_bw_ta = w_x_bw_ta.unstack(w_x_bw)
         w_x_c_shape = tf.shape(w_x_enc)[1:]
         w_x_enc = tf.transpose(w_x_enc, [1,0,2,3])
-        w_x_enc = tf.reshape(w_x_enc, 
+        w_x_enc = tf.reshape(w_x_enc,
                              tf.concat([tf.shape(w_x_enc)[:2], [-1]], -1))
 
         w_x_h_ta = tf.TensorArray(tf.float32, time_steps,
@@ -179,13 +179,13 @@ def _decoder(cell, inputs, memory, sequence_length, initial_state, w_x_enc,
 
         initial_state_linear = lrp.linear_v2n(initial_state, output_size, True,
                                               [w_x_bw_ta.read(0)], params,
-                                              False, scope="s_transform", 
+                                              False, scope="s_transform",
                                               d2=True)
         initial_state = initial_state_linear["output"]
         w_initial = initial_state_linear["weight_ratios"][0]
         initial_state = tf.tanh(initial_state)
 
-        def loop_func(t, out_ta, att_ta, val_ta, state, cache_key, wxh_ta, 
+        def loop_func(t, out_ta, att_ta, val_ta, state, cache_key, wxh_ta,
                       wxc_ta, w_x_h_last):
             # now state
             wxh_ta = wxh_ta.write(t, w_x_h_last)
@@ -205,14 +205,14 @@ def _decoder(cell, inputs, memory, sequence_length, initial_state, w_x_enc,
             len_src = tf.shape(wr_att)[1]
             w_x_c = tf.reshape(w_x_enc, [1, len_src, len_src, -1]) * wr_att
             w_x_c = tf.reduce_sum(w_x_c, 2)
-            
+
             #w_x_c = tf.matmul(att, w_x_enc)
             w_x_c = tf.reshape(w_x_c, w_x_c_shape)
             wxc_ta = wxc_ta.write(t, w_x_c)
 
             # next state
             cell_input = [inp_t, context]
-            cell_output, new_state, w_x_h_new = cell(cell_input, state, 
+            cell_output, new_state, w_x_h_new = cell(cell_input, state,
                                                      w_x_h_last, w_x_c, params)
             cell_output = _copy_through(t, sequence_length["target"],
                                         zero_output, cell_output)
@@ -374,7 +374,7 @@ def model_graph(features, labels, params):
         ]
         maxhid = layers.nn.maxout(maxout_features, maxout_size, params.maxnum,
                               params, concat=False)
-        
+
         readout = layers.nn.linear(maxhid, params.embedding_size, False,
                                    False, scope="deepout")
 
@@ -389,7 +389,7 @@ def model_graph(features, labels, params):
     maxhid = maxhid_maxout["output"]
     w_x_maxout = maxhid_maxout["weight_ratios"][0]
     w_x_maxout = tf.transpose(w_x_maxout, [0, 2, 1, 3])
-    readout = lrp.linear_v2n(maxhid, params.embedding_size, False, 
+    readout = lrp.linear_v2n(maxhid, params.embedding_size, False,
                              [w_x_maxout], params, False, scope="deepout")
     w_x_readout = readout["weight_ratios"][0]
     readout = readout["output"]
@@ -398,13 +398,13 @@ def model_graph(features, labels, params):
         readout = tf.nn.dropout(readout, 1.0 - params.dropout)
 
     # Prediction and final relevance
-    logits = lrp.linear_v2n(readout, tgt_vocab_size, True, [w_x_readout], 
+    logits = lrp.linear_v2n(readout, tgt_vocab_size, True, [w_x_readout],
                             params, False, scope="softmax")
     w_x_true = logits["weight_ratios"][0]
     logits= logits["output"]
     logits = tf.reshape(logits, [-1, tgt_vocab_size])
     w_x_true = tf.transpose(w_x_true, [0, 2, 1, 3])
-    w_x_true = tf.reshape(w_x_true, [-1, tf.shape(w_x_true)[-2], 
+    w_x_true = tf.reshape(w_x_true, [-1, tf.shape(w_x_true)[-2],
                                      tf.shape(w_x_true)[-1]])
     w_x_true = tf.transpose(w_x_true, [0, 2, 1])
     labels_lrp = labels

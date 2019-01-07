@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # coding=utf-8
-# Copyright 2018 The THUMT Authors
+# Copyright 2017-2019 The THUMT Authors
 
 from __future__ import absolute_import
 from __future__ import division
@@ -185,7 +185,7 @@ def set_variables(var_list, value_dict, prefix):
 def main(args):
     tf.logging.set_verbosity(tf.logging.INFO)
     # Load configs
-    model_cls_list = [models.get_model(model, lrp=True) 
+    model_cls_list = [models.get_model(model, lrp=True)
                       for model in args.models]
     params_list = [default_parameters() for _ in range(len(model_cls_list))]
     params_list = [
@@ -281,9 +281,9 @@ def main(args):
                 message = "Finished batch"" %d" % count
                 for i in range(src_seq.shape[0]):
                     count += 1
-                    src = to_text(params.vocabulary["source"], 
+                    src = to_text(params.vocabulary["source"],
                                   params.mapping["source"], src_seq[i], params)
-                    trg = to_text(params.vocabulary["target"], 
+                    trg = to_text(params.vocabulary["target"],
                                   params.mapping["target"], trg_seq[i], params)
                     output = open(args.relevances + '/' + str(count), 'w')
                     output.write('src: ' + src + '\n')
