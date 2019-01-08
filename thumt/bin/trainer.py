@@ -142,7 +142,7 @@ def export_params(output_dir, name, params):
 def collect_params(all_params, params):
     collected = tf.contrib.training.HParams()
 
-    for k in params.values().iterkeys():
+    for k in six.iterkeys(params.values()):
         collected.add_hparam(k, getattr(all_params, k))
 
     return collected
@@ -151,12 +151,12 @@ def collect_params(all_params, params):
 def merge_parameters(params1, params2):
     params = tf.contrib.training.HParams()
 
-    for (k, v) in params1.values().iteritems():
+    for (k, v) in six.iteritems(params1.values()):
         params.add_hparam(k, v)
 
     params_dict = params.values()
 
-    for (k, v) in params2.values().iteritems():
+    for (k, v) in six.iteritems(params2.values()):
         if k in params_dict:
             # Override
             setattr(params, k, v)

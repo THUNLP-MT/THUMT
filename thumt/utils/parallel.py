@@ -5,6 +5,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import six
 import operator
 
 import tensorflow as tf
@@ -66,7 +67,7 @@ def data_parallelism(devices, fn, *args, **kwargs):
 
     new_kwargs = [{} for _ in range(num_worker)]
 
-    for k, v in kwargs.iteritems():
+    for k, v in six.iteritems(kwargs):
         vals = _maybe_repeat(v, num_worker)
 
         for i in range(num_worker):
@@ -76,11 +77,34 @@ def data_parallelism(devices, fn, *args, **kwargs):
 
     # Now make the parallel call.
     outputs = []
+    cache = {}
+    tensor_to_var = {}
 
     for i in range(num_worker):
         worker = "/gpu:%d" % i
         device_setter = _create_device_setter(False, worker, len(devices))
-        with tf.variable_scope(tf.get_variable_scope(), reuse=(i != 0)):
+
+        def daisy_chain_getter(getter, name, *args, **kwargs):
+            device_var_key = (worker, name)
+            if device_var_key in cache:
+                return cache[device_var_key]
+            if name in cache:
+                last_device_v = cache[name]
+                var = tensor_to_var[last_device_v]
+                val = tf.identity(last_device_v)
+            else:
+                var = getter(name, *args, **kwargs)
+                val = var.read_value()
+
+            # keep track of the original variable
+            tensor_to_var[val] = var
+            # update the cache
+            cache[name] = val
+            cache[device_var_key] = val
+            return val
+
+        with tf.variable_scope(tf.get_variable_scope(), reuse=(i != 0),
+                               custom_getter=daisy_chain_getter):
             with tf.name_scope("parallel_%d" % i):
                 with tf.device(device_setter):
                     outputs.append(fns[i](*new_args[i], **new_kwargs[i]))
@@ -97,7 +121,7 @@ def shard_features(features, device_list):
 
     sharded_features = {}
 
-    for k, v in features.iteritems():
+    for k, v in six.iteritems(features):
         v = tf.convert_to_tensor(v)
         if not v.shape.as_list():
             v = tf.expand_dims(v, axis=-1)
@@ -109,7 +133,7 @@ def shard_features(features, device_list):
 
     for d in range(num_datashards):
         feat = {
-            k: v[d] for k, v in sharded_features.iteritems()
+            k: v[d] for k, v in six.iteritems(sharded_features)
         }
         datashard_to_features.append(feat)
 
