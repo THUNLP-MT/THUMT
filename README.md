@@ -17,7 +17,7 @@ THUMT is an open-source toolkit for neural machine translation developed by [the
 
 ## Online Demo
 
-The online demo of THUMT is available at [http://translate.thumt.cn/](http://101.6.5.207:3892/). The languages involved include Ancient Chinese, Arabic, Chinese, English, French, German, Indonesian, Japanese, Portugese, Russia, and Spanish.
+The online demo of THUMT is available at [http://translate.thumt.cn/](http://101.6.5.207:3892/). The languages involved include Ancient Chinese, Arabic, Chinese, English, French, German, Indonesian, Japanese, Portugese, Russian, and Spanish.
 
 ## Implementations
 THUMT has currently two main implementations:
