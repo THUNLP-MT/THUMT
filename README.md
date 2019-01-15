@@ -1,6 +1,7 @@
 # THUMT: An Open Source Toolkit for Neural Machine Translation
 ## Contents
 * [Introduction](#introduction)
+* [Online Demo](#demo)
 * [Implementations](#implementations)
 * [License](#license)
 * [Citation](#citation)
@@ -12,8 +13,11 @@
 
 Machine translation is a natural language processing task that aims to translate natural languages using computers automatically. Recent several years have witnessed the rapid development of end-to-end neural machine translation, which has become the new mainstream method in practical MT systems.
 
-THUMT is an open-source toolkit for neural machine translation developed by [the Natural Language Processing Group at Tsinghua University](http://nlp.csai.tsinghua.edu.cn/site2/index.php?lang=en).
+THUMT is an open-source toolkit for neural machine translation developed by [the Natural Language Processing Group at Tsinghua University](http://nlp.csai.tsinghua.edu.cn/site2/index.php?lang=en). The website of THUMT is: [http://thumt.thunlp.org/](http://thumt.thunlp.org/).
 
+## Online Demo
+
+The demo of THUMT is available at [http://translate.thumt.cn/](http://101.6.5.207:3892/).
 
 ## Implementations
 THUMT has currently two main implementations:
