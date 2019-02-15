@@ -84,7 +84,7 @@ def batch_examples(example, batch_size, max_length, mantissa_bits,
 def get_training_input(filenames, params):
     """ Get input for training stage
 
-    :param filenames: A list contains [source_filename, target_filename]
+    :param filenames: A list contains [source_filenames, target_filenames]
     :param params: Hyper-parameters
 
     :returns: A dictionary of pair <Key, Tensor>
