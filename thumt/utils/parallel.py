@@ -104,7 +104,7 @@ def data_parallelism(devices, fn, *args, **kwargs):
             return val
 
         with tf.variable_scope(tf.get_variable_scope(), reuse=(i != 0),
-                               custom_getter=daisy_chain_getter):
+                               custom_getter=None):
             with tf.name_scope("parallel_%d" % i):
                 with tf.device(device_setter):
                     outputs.append(fns[i](*new_args[i], **new_kwargs[i]))

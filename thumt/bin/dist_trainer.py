@@ -14,7 +14,7 @@ import horovod.tensorflow as hvd
 import numpy as np
 import tensorflow as tf
 import thumt.data.cache as cache
-import thumt.data.dataset as dataset
+import thumt.data.dist_dataset as dataset
 import thumt.data.record as record
 import thumt.data.vocab as vocabulary
 import thumt.models as models
@@ -304,16 +304,6 @@ def restore_variables(checkpoint):
     return tf.group(*ops, name="restore_op")
 
 
-def get_dataset(pattern):
-    pattern = pattern + "*"
-    files = tf.gfile.Glob(pattern)
-    files = sorted(files)
-    k, m = divmod(len(files), hvd.size())
-    lists = [files[i * k + min(i, m):(i + 1) * k + min(i + 1, m)]
-             for i in range(hvd.size())]
-    return lists[hvd.rank()]
-
-
 def main(args):
     hvd.init()
 
@@ -329,25 +319,26 @@ def main(args):
     override_parameters(params, args)
 
     # Export all parameters and model specific parameters
-    export_params(params.output, "params.json", params)
-    export_params(
-        params.output,
-        "%s.json" % args.model,
-        collect_params(params, model_cls.get_parameters())
-    )
+    if hvd.rank() == 0:
+        export_params(params.output, "params.json", params)
+        export_params(
+            params.output,
+            "%s.json" % args.model,
+            collect_params(params, model_cls.get_parameters())
+        )
 
     # Build Graph
     with tf.Graph().as_default():
         if not params.record:
             # Build input queue
-            src_inputs = get_dataset(params.input[0])
-            tgt_inputs = get_dataset(params.input[1])
-            inputs = [src_inputs, tgt_inputs]
-            features = dataset.get_training_input(inputs, params)
+            features = dataset.get_training_input(params.input, params)
         else:
             features = record.get_input_features(
                 os.path.join(params.record, "*train*"), "train", params
             )
+
+        update_cycle = params.update_cycle
+        features, init_op = cache.cache_features(features, update_cycle)
 
         # Build model
         initializer = get_initializer(params)
@@ -362,16 +353,17 @@ def main(args):
         loss = loss + tf.losses.get_regularization_loss()
 
         # Print parameters
-        all_weights = {v.name: v for v in tf.trainable_variables()}
-        total_size = 0
+        if hvd.rank() == 0:
+            all_weights = {v.name: v for v in tf.trainable_variables()}
+            total_size = 0
 
-        for v_name in sorted(list(all_weights)):
-            v = all_weights[v_name]
-            tf.logging.info("%s\tshape    %s", v.name[:-2].ljust(80),
-                            str(v.shape).ljust(20))
-            v_size = np.prod(np.array(v.shape.as_list())).tolist()
-            total_size += v_size
-        tf.logging.info("Total trainable variables size: %d", total_size)
+            for v_name in sorted(list(all_weights)):
+                v = all_weights[v_name]
+                tf.logging.info("%s\tshape    %s", v.name[:-2].ljust(80),
+                                str(v.shape).ljust(20))
+                v_size = np.prod(np.array(v.shape.as_list())).tolist()
+                total_size += v_size
+            tf.logging.info("Total trainable variables size: %d", total_size)
 
         learning_rate = get_learning_rate_decay(params.learning_rate,
                                                 global_step, params)
@@ -384,17 +376,19 @@ def main(args):
                                          beta1=params.adam_beta1,
                                          beta2=params.adam_beta2,
                                          epsilon=params.adam_epsilon)
-            opt = hvd.DistributedOptimizer(opt)
         elif params.optimizer == "LazyAdam":
             opt = tf.contrib.opt.LazyAdamOptimizer(learning_rate,
                                                    beta1=params.adam_beta1,
                                                    beta2=params.adam_beta2,
                                                    epsilon=params.adam_epsilon)
-            opt = hvd.DistributedOptimizer(opt)
         else:
             raise RuntimeError("Optimizer %s not supported" % params.optimizer)
 
-        train_op = opt.minimize(loss, global_step=global_step)
+        def all_reduce_fn(tensor):
+            return hvd.allreduce(tensor, compression=hvd.Compression.fp16)
+
+        loss, ops = optimize.create_train_op(loss, opt, global_step,
+                                             all_reduce_fn, params)
         restore_op = restore_variables(args.checkpoint)
 
         # Validation
@@ -459,16 +453,25 @@ def main(args):
         def restore_fn(step_context):
             step_context.session.run(restore_op)
 
+        def step_fn(step_context):
+            # Bypass hook calls
+            step_context.session.run([init_op, ops["zero_op"]])
+            for i in range(update_cycle - 1):
+                step_context.session.run(ops["collect_op"])
+
+            return step_context.run_with_hooks(ops["train_op"])
+
         # Create session, do not use default CheckpointSaverHook
         with tf.train.MonitoredTrainingSession(
-                checkpoint_dir=None, hooks=train_hooks,
+                checkpoint_dir=params.output if hvd.rank() == 0 else None,
+                hooks=train_hooks,
                 save_checkpoint_secs=None, save_checkpoint_steps=None,
                 config=config) as sess:
             # Restore pre-trained variables
             sess.run_step_fn(restore_fn)
 
             while not sess.should_stop():
-                sess.run(train_op)
+                sess.run_step_fn(step_fn)
 
 
 if __name__ == "__main__":

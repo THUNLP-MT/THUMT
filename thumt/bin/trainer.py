@@ -386,7 +386,8 @@ def main(args):
         else:
             raise RuntimeError("Optimizer %s not supported" % params.optimizer)
 
-        loss, ops = optimize.create_train_op(loss, opt, global_step, params)
+        loss, ops = optimize.create_train_op(loss, opt, global_step, None,
+                                             params)
         restore_op = restore_variables(args.checkpoint)
 
         # Validation
