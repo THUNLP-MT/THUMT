@@ -81,7 +81,7 @@ def data_parallelism(devices, fn, *args, **kwargs):
     tensor_to_var = {}
 
     for i in range(num_worker):
-        worker = "/gpu:%d" % i
+        worker = "/gpu:%d" % devices[i]
         device_setter = _create_device_setter(False, worker, len(devices))
 
         def daisy_chain_getter(getter, name, *args, **kwargs):
