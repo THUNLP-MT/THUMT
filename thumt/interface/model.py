@@ -13,10 +13,11 @@ class NMTModel(object):
         self._scope = scope
         self._params = params
 
-    def get_training_func(self, initializer, regularizer=None):
+    def get_training_func(self, initializer, regularizer=None, dtype=None):
         """
         :param initializer: the initializer used to initialize the model
         :param regularizer: the regularizer used for model regularization
+        :param dtype: an instance of tf.DType
         :return: a function with the following signature:
             (features, params, reuse) -> loss
         """

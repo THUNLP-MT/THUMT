@@ -10,6 +10,7 @@ import operator
 
 import numpy as np
 import tensorflow as tf
+import thumt.utils.distribute as distribute
 
 
 def batch_examples(example, batch_size, max_length, mantissa_bits,
@@ -95,6 +96,10 @@ def get_training_input(filenames, params):
         tgt_dataset = tf.data.TextLineDataset(filenames[1])
 
         dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
+
+        if distribute.is_distributed_training_mode():
+            dataset = dataset.shard(distribute.size(), distribute.rank())
+
         dataset = dataset.shuffle(params.buffer_size)
         dataset = dataset.repeat()
 
@@ -146,7 +151,10 @@ def get_training_input(filenames, params):
         features["target"] = tgt_table.lookup(features["target"])
 
         # Batching
-        shard_multiplier = len(params.device_list) * params.update_cycle
+        if distribute.is_distributed_training_mode():
+            shard_multiplier = params.update_cycle
+        else:
+            shard_multiplier = len(params.device_list) * params.update_cycle
         features = batch_examples(features, params.batch_size,
                                   params.max_length, params.mantissa_bits,
                                   shard_multiplier=shard_multiplier,

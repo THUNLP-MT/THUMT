@@ -17,6 +17,7 @@ import thumt.data.dataset as dataset
 import thumt.data.record as record
 import thumt.data.vocab as vocabulary
 import thumt.models as models
+import thumt.utils.distribute as distribute
 import thumt.utils.hooks as hooks
 import thumt.utils.inference as inference
 import thumt.utils.optimize as optimize
@@ -44,6 +45,10 @@ def parse_args(args=None):
                         help="Path of reference files")
     parser.add_argument("--checkpoint", type=str,
                         help="Path to pre-trained checkpoint")
+    parser.add_argument("--fp16", action="store_true",
+                        help="Enable FP16 training")
+    parser.add_argument("--distribute", action="store_true",
+                        help="Enable distributed training")
 
     # model and configuration
     parser.add_argument("--model", type=str, required=True,
@@ -75,6 +80,7 @@ def default_parameters():
         update_cycle=1,
         initializer="uniform_unit_scaling",
         initializer_gain=1.0,
+        loss_scale=128,
         scale_l1=0.0,
         scale_l2=0.0,
         optimizer="Adam",
@@ -246,7 +252,10 @@ def session_config(params):
     graph_options = tf.GraphOptions(optimizer_options=optimizer_options)
     config = tf.ConfigProto(allow_soft_placement=True,
                             graph_options=graph_options)
-    if params.device_list:
+
+    if distribute.is_distributed_training_mode():
+        config.gpu_options.visible_device_list = str(distribute.local_rank())
+    elif params.device_list:
         device_str = ",".join([str(i) for i in params.device_list])
         config.gpu_options.visible_device_list = device_str
 
@@ -305,7 +314,23 @@ def restore_variables(checkpoint):
     return tf.group(*ops, name="restore_op")
 
 
+def print_variables():
+    all_weights = {v.name: v for v in tf.trainable_variables()}
+    total_size = 0
+
+    for v_name in sorted(list(all_weights)):
+        v = all_weights[v_name]
+        tf.logging.info("%s\tshape    %s", v.name[:-2].ljust(80),
+                        str(v.shape).ljust(20))
+        v_size = np.prod(np.array(v.shape.as_list())).tolist()
+        total_size += v_size
+        tf.logging.info("Total trainable variables size: %d", total_size)
+
+
 def main(args):
+    if args.distribute:
+        distribute.enable_distributed_training()
+
     tf.logging.set_verbosity(tf.logging.INFO)
     model_cls = models.get_model(args.model)
     params = default_parameters()
@@ -318,12 +343,13 @@ def main(args):
     override_parameters(params, args)
 
     # Export all parameters and model specific parameters
-    export_params(params.output, "params.json", params)
-    export_params(
-        params.output,
-        "%s.json" % args.model,
-        collect_params(params, model_cls.get_parameters())
-    )
+    if not args.distribute or distribute.rank() == 0:
+        export_params(params.output, "params.json", params)
+        export_params(
+            params.output,
+            "%s.json" % args.model,
+            collect_params(params, model_cls.get_parameters())
+        )
 
     # Build Graph
     with tf.Graph().as_default():
@@ -345,27 +371,25 @@ def main(args):
         model = model_cls(params)
         # Create global step
         global_step = tf.train.get_or_create_global_step()
+        dtype = tf.float16 if args.fp16 else None
 
-        # Multi-GPU setting
-        sharded_losses = parallel.parallel_model(
-            model.get_training_func(initializer, regularizer),
-            features,
-            params.device_list
-        )
-        loss = tf.add_n(sharded_losses) / len(sharded_losses)
-        loss = loss + tf.losses.get_regularization_loss()
+        if args.distribute:
+            training_func = model.get_training_func(initializer, regularizer,
+                                                    dtype)
+            loss = training_func(features)
+        else:
+            # Multi-GPU setting
+            sharded_losses = parallel.parallel_model(
+                model.get_training_func(initializer, regularizer, dtype),
+                features,
+                params.device_list
+            )
+            loss = tf.add_n(sharded_losses) / len(sharded_losses)
+            loss = loss + tf.losses.get_regularization_loss()
 
         # Print parameters
-        all_weights = {v.name: v for v in tf.trainable_variables()}
-        total_size = 0
-
-        for v_name in sorted(list(all_weights)):
-            v = all_weights[v_name]
-            tf.logging.info("%s\tshape    %s", v.name[:-2].ljust(80),
-                            str(v.shape).ljust(20))
-            v_size = np.prod(np.array(v.shape.as_list())).tolist()
-            total_size += v_size
-        tf.logging.info("Total trainable variables size: %d", total_size)
+        if not args.distribute or distribute.rank == 0:
+            print_variables()
 
         learning_rate = get_learning_rate_decay(params.learning_rate,
                                                 global_step, params)
@@ -386,8 +410,10 @@ def main(args):
         else:
             raise RuntimeError("Optimizer %s not supported" % params.optimizer)
 
-        loss, ops = optimize.create_train_op(loss, opt, global_step, None,
-                                             params)
+        loss, ops = optimize.create_train_op(
+            loss, opt, global_step,
+            distribute.all_reduce if args.distribute else None, args.fp16,
+            params)
         restore_op = restore_variables(args.checkpoint)
 
         # Validation
@@ -399,14 +425,6 @@ def main(args):
             eval_input_fn = None
 
         # Add hooks
-        save_vars = tf.trainable_variables() + [global_step]
-        saver = tf.train.Saver(
-            var_list=save_vars if params.only_save_trainable else None,
-            max_to_keep=params.keep_checkpoint_max,
-            sharded=False
-        )
-        tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
-
         multiplier = tf.convert_to_tensor([update_cycle, 1])
 
         train_hooks = [
@@ -420,32 +438,48 @@ def main(args):
                     "target": tf.shape(features["target"]) * multiplier
                 },
                 every_n_iter=1
-            ),
-            tf.train.CheckpointSaverHook(
-                checkpoint_dir=params.output,
-                save_secs=params.save_checkpoint_secs or None,
-                save_steps=params.save_checkpoint_steps or None,
-                saver=saver
             )
         ]
 
+        if args.distribute:
+            train_hooks.append(distribute.get_broadcast_hook())
+
         config = session_config(params)
 
-        if eval_input_fn is not None:
+        if not args.distribute or distribute.rank() == 0:
+            # Add hooks
+            save_vars = tf.trainable_variables() + [global_step]
+            saver = tf.train.Saver(
+                var_list=save_vars if params.only_save_trainable else None,
+                max_to_keep=params.keep_checkpoint_max,
+                sharded=False
+            )
+            tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
             train_hooks.append(
-                hooks.EvaluationHook(
-                    lambda f: inference.create_inference_graph(
-                        [model], f, params
-                    ),
-                    lambda: eval_input_fn(eval_inputs, params),
-                    lambda x: decode_target_ids(x, params),
-                    params.output,
-                    config,
-                    params.keep_top_checkpoint_max,
-                    eval_secs=params.eval_secs,
-                    eval_steps=params.eval_steps
+                tf.train.CheckpointSaverHook(
+                    checkpoint_dir=params.output,
+                    save_secs=params.save_checkpoint_secs or None,
+                    save_steps=params.save_checkpoint_steps or None,
+                    saver=saver
                 )
             )
+
+        if eval_input_fn is not None:
+            if not args.distribute or distribute.rank() == 0:
+                train_hooks.append(
+                    hooks.EvaluationHook(
+                        lambda f: inference.create_inference_graph(
+                            [model], f, params
+                        ),
+                        lambda: eval_input_fn(eval_inputs, params),
+                        lambda x: decode_target_ids(x, params),
+                        params.output,
+                        config,
+                        params.keep_top_checkpoint_max,
+                        eval_secs=params.eval_secs,
+                        eval_steps=params.eval_steps
+                    )
+                )
 
         def restore_fn(step_context):
             step_context.session.run(restore_op)
@@ -459,8 +493,13 @@ def main(args):
             return step_context.run_with_hooks(ops["train_op"])
 
         # Create session, do not use default CheckpointSaverHook
+        if not args.distribute or distribute.rank() == 0:
+            checkpoint_dir = params.output
+        else:
+            checkpoint_dir = None
+
         with tf.train.MonitoredTrainingSession(
-                checkpoint_dir=params.output, hooks=train_hooks,
+                checkpoint_dir=checkpoint_dir, hooks=train_hooks,
                 save_checkpoint_secs=None, config=config) as sess:
             # Restore pre-trained variables
             sess.run_step_fn(restore_fn)

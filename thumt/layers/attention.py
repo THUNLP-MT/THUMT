@@ -44,7 +44,7 @@ def add_timing_signal(x, min_timescale=1.0, max_timescale=1.0e4, name=None):
         signal = tf.pad(signal, [[0, 0], [0, tf.mod(channels, 2)]])
         signal = tf.reshape(signal, [1, length, channels])
 
-        return x + signal
+        return x + tf.cast(signal, x.dtype)
 
 
 def split_heads(inputs, num_heads, name=None):
@@ -88,33 +88,40 @@ def combine_heads(inputs, name=None):
         return x
 
 
-def attention_bias(inputs, mode, inf=-1e9, name=None):
+def attention_bias(inputs, mode, inf=-1e9, dtype=None, name=None):
     """ A bias tensor used in attention mechanism
     :param inputs: A tensor
     :param mode: one of "causal", "masking", "proximal" or "distance"
     :param inf: A floating value
+    :param dtype: An instance of tf.DType
     :param name: optional string
     :returns: A 4D tensor with shape [batch, heads, queries, memories]
     """
 
     with tf.name_scope(name, default_name="attention_bias", values=[inputs]):
+        if dtype is None:
+            dtype = tf.float32
+
+        if dtype != tf.float32:
+            inf = dtype.min
+
         if mode == "causal":
             length = inputs
             lower_triangle = tf.matrix_band_part(
                 tf.ones([length, length]), -1, 0
             )
             ret = inf * (1.0 - lower_triangle)
-            return tf.reshape(ret, [1, 1, length, length])
+            ret = tf.reshape(ret, [1, 1, length, length])
         elif mode == "masking":
             mask = inputs
             ret = (1.0 - mask) * inf
-            return tf.expand_dims(tf.expand_dims(ret, 1), 1)
+            ret = tf.expand_dims(tf.expand_dims(ret, 1), 1)
         elif mode == "proximal":
             length = inputs
             r = tf.to_float(tf.range(length))
             diff = tf.expand_dims(r, 0) - tf.expand_dims(r, 1)
-            m = tf.expand_dims(tf.expand_dims(-tf.log(1 + tf.abs(diff)), 0), 0)
-            return m
+            ret = tf.expand_dims(tf.expand_dims(-tf.log(1 + tf.abs(diff)), 0),
+                                 0)
         elif mode == "distance":
             length, distance = inputs
             distance = tf.where(distance > length, 0, distance)
@@ -126,9 +133,11 @@ def attention_bias(inputs, mode, inf=-1e9, name=None):
                 tf.ones([length, length]), distance - 1, 0
             )
             ret = inf * (1.0 - lower_triangle + mask_triangle)
-            return tf.reshape(ret, [1, 1, length, length])
+            ret = tf.reshape(ret, [1, 1, length, length])
         else:
             raise ValueError("Unknown mode %s" % mode)
+
+        return tf.cast(ret, dtype)
 
 
 def should_generate_summaries():

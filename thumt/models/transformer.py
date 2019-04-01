@@ -10,6 +10,7 @@ import copy
 import tensorflow as tf
 import thumt.interface as interface
 import thumt.layers as layers
+import thumt.utils.getter as getter
 
 
 def _layer_process(x, mode):
@@ -151,12 +152,13 @@ def encoding_graph(features, mode, params):
         params.relu_dropout = 0.0
         params.label_smoothing = 0.0
 
+    dtype = tf.get_variable_scope().dtype
     hidden_size = params.hidden_size
     src_seq = features["source"]
     src_len = features["source_length"]
     src_mask = tf.sequence_mask(src_len,
                                 maxlen=tf.shape(features["source"])[1],
-                                dtype=tf.float32)
+                                dtype=dtype or tf.float32)
 
     svocab = params.vocabulary["source"]
     src_vocab_size = len(svocab)
@@ -182,7 +184,8 @@ def encoding_graph(features, mode, params):
 
     encoder_input = tf.nn.bias_add(inputs, bias)
     encoder_input = layers.attention.add_timing_signal(encoder_input)
-    enc_attn_bias = layers.attention.attention_bias(src_mask, "masking")
+    enc_attn_bias = layers.attention.attention_bias(src_mask, "masking",
+                                                    dtype=dtype)
 
     if params.residual_dropout:
         keep_prob = 1.0 - params.residual_dropout
@@ -200,15 +203,16 @@ def decoding_graph(features, state, mode, params):
         params.relu_dropout = 0.0
         params.label_smoothing = 0.0
 
+    dtype = tf.get_variable_scope().dtype
     tgt_seq = features["target"]
     src_len = features["source_length"]
     tgt_len = features["target_length"]
     src_mask = tf.sequence_mask(src_len,
                                 maxlen=tf.shape(features["source"])[1],
-                                dtype=tf.float32)
+                                dtype=dtype or tf.float32)
     tgt_mask = tf.sequence_mask(tgt_len,
                                 maxlen=tf.shape(features["target"])[1],
-                                dtype=tf.float32)
+                                dtype=dtype or tf.float32)
 
     hidden_size = params.hidden_size
     tvocab = params.vocabulary["target"]
@@ -238,9 +242,10 @@ def decoding_graph(features, state, mode, params):
 
     targets = targets * tf.expand_dims(tgt_mask, -1)
 
-    enc_attn_bias = layers.attention.attention_bias(src_mask, "masking")
+    enc_attn_bias = layers.attention.attention_bias(src_mask, "masking",
+                                                    dtype=dtype)
     dec_attn_bias = layers.attention.attention_bias(tf.shape(targets)[1],
-                                                    "causal")
+                                                    "causal", dtype=dtype)
     # Shift left
     decoder_input = tf.pad(targets, [[0, 0], [1, 0], [0, 0]])[:, :-1, :]
     decoder_input = layers.attention.add_timing_signal(decoder_input)
@@ -280,6 +285,7 @@ def decoding_graph(features, state, mode, params):
         smoothing=params.label_smoothing,
         normalize=True
     )
+    tgt_mask = tf.cast(tgt_mask, ce.dtype)
 
     ce = tf.reshape(ce, tf.shape(tgt_seq))
 
@@ -306,15 +312,21 @@ class Transformer(interface.NMTModel):
     def __init__(self, params, scope="transformer"):
         super(Transformer, self).__init__(params=params, scope=scope)
 
-    def get_training_func(self, initializer, regularizer=None):
+    def get_training_func(self, initializer, regularizer=None, dtype=None):
         def training_fn(features, params=None, reuse=None):
             if params is None:
                 params = copy.copy(self.parameters)
             else:
                 params = copy.copy(params)
 
+            if dtype != tf.float32:
+                custom_getter = getter.fp32_variable_getter
+            else:
+                custom_getter = None
+
             with tf.variable_scope(self._scope, initializer=initializer,
-                                   regularizer=regularizer, reuse=reuse):
+                                   regularizer=regularizer, reuse=reuse,
+                                   custom_getter=custom_getter, dtype=dtype):
                 loss = model_graph(features, "train", params)
                 return loss
 

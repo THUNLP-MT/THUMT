@@ -10,11 +10,13 @@ import copy
 import tensorflow as tf
 import thumt.interface as interface
 import thumt.layers as layers
+import thumt.utils.getter as getter
 
 
 def model_graph(features, mode, params):
     src_vocab_size = len(params.vocabulary["source"])
     tgt_vocab_size = len(params.vocabulary["target"])
+    dtype = tf.get_variable_scope().dtype
 
     src_seq = features["source"]
     tgt_seq = features["target"]
@@ -61,14 +63,14 @@ def model_graph(features, mode, params):
             output_keep_prob=1.0 - params.dropout,
             variational_recurrent=params.use_variational_dropout,
             input_size=params.embedding_size,
-            dtype=tf.float32
+            dtype=dtype
         )
         cell_d = tf.nn.rnn_cell.DropoutWrapper(
             cell_d,
             output_keep_prob=1.0 - params.dropout,
             variational_recurrent=params.use_variational_dropout,
             input_size=params.embedding_size,
-            dtype=tf.float32
+            dtype=dtype
         )
 
         if params.use_residual:
@@ -84,7 +86,7 @@ def model_graph(features, mode, params):
     with tf.variable_scope("encoder"):
         _, final_state = tf.nn.dynamic_rnn(cell_enc, src_inputs,
                                            features["source_length"],
-                                           dtype=tf.float32)
+                                           dtype=dtype)
     # Shift left
     shifted_tgt_inputs = tf.pad(tgt_inputs, [[0, 0], [1, 0], [0, 0]])
     shifted_tgt_inputs = shifted_tgt_inputs[:, :-1, :]
@@ -137,12 +139,19 @@ class Seq2Seq(interface.NMTModel):
     def __init__(self, params, scope="seq2seq"):
         super(Seq2Seq, self).__init__(params=params, scope=scope)
 
-    def get_training_func(self, initializer, regularizer=None):
+    def get_training_func(self, initializer, regularizer=None, dtype=None):
         def training_fn(features, params=None, reuse=None):
             if params is None:
                 params = self.parameters
+
+            if dtype != tf.float32:
+                custom_getter = getter.fp32_variable_getter
+            else:
+                custom_getter = None
+
             with tf.variable_scope(self._scope, initializer=initializer,
-                                   regularizer=regularizer, reuse=reuse):
+                                   regularizer=regularizer, reuse=reuse,
+                                   custom_getter=custom_getter, dtype=dtype):
                 loss = model_graph(features, "train", params)
                 return loss
 

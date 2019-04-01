@@ -44,13 +44,33 @@ def _collect_gradients(gradients, variables):
     return tf.group(*ops, name="collect_gradients")
 
 
-def create_train_op(loss, optimizer, global_step, all_reduce_fn, params):
+def _gradients_with_loss_scaling(loss, variables, loss_scale):
+    grads = tf.gradients(loss * loss_scale, variables)
+    scaled_grads = []
+
+    for grad in grads:
+        if isinstance(grad, tf.IndexedSlices):
+            scaled_grads.append(tf.IndexedSlices(
+                grad.values / loss_scale, grad.indices, grad.dense_shape
+            ))
+        else:
+            scaled_grads.append(grad / loss_scale)
+
+    return scaled_grads
+
+
+def create_train_op(loss, optimizer, global_step, all_reduce_fn, fp16, params):
 
     with tf.name_scope("create_train_op"):
-        grads_and_vars = optimizer.compute_gradients(
-            loss, colocate_gradients_with_ops=True)
-        gradients = [item[0] for item in grads_and_vars]
-        variables = [item[1] for item in grads_and_vars]
+        if fp16:
+            variables = tf.trainable_variables()
+            gradients = _gradients_with_loss_scaling(loss, variables,
+                                                     params.loss_scale)
+        else:
+            grads_and_vars = optimizer.compute_gradients(
+                loss, colocate_gradients_with_ops=True)
+            gradients = [item[0] for item in grads_and_vars]
+            variables = [item[1] for item in grads_and_vars]
 
         if params.update_cycle == 1:
             zero_variables_op = tf.no_op("zero_variables")
