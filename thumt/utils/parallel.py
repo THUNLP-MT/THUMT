@@ -11,29 +11,6 @@ import operator
 import tensorflow as tf
 
 
-class GPUParamServerDeviceSetter(object):
-
-    def __init__(self, worker_device, ps_devices):
-        self.ps_devices = ps_devices
-        self.worker_device = worker_device
-        self.ps_sizes = [0] * len(self.ps_devices)
-
-    def __call__(self, op):
-        if op.device:
-            return op.device
-        if op.type not in ["Variable", "VariableV2", "VarHandleOp"]:
-            return self.worker_device
-
-        # Gets the least loaded ps_device
-        device_index, _ = min(enumerate(self.ps_sizes),
-                              key=operator.itemgetter(1))
-        device_name = self.ps_devices[device_index]
-        var_size = op.outputs[0].get_shape().num_elements()
-        self.ps_sizes[device_index] += var_size
-
-        return device_name
-
-
 def _maybe_repeat(x, n):
     if isinstance(x, list):
         assert len(x) == n
@@ -42,20 +19,10 @@ def _maybe_repeat(x, n):
         return [x] * n
 
 
-def _create_device_setter(is_cpu_ps, worker, num_gpus):
-    if is_cpu_ps:
-        # tf.train.replica_device_setter supports placing variables on the CPU,
-        # all on one GPU, or on ps_servers defined in a cluster_spec.
-        return tf.train.replica_device_setter(
-            worker_device=worker, ps_device="/cpu:0", ps_tasks=1)
-    else:
-        gpus = ["/gpu:%d" % i for i in range(num_gpus)]
-        return GPUParamServerDeviceSetter(worker, gpus)
-
-
 # Data-level parallelism
 def data_parallelism(devices, fn, *args, **kwargs):
     num_worker = len(devices)
+    devices = ["gpu:%d" % d for d in devices]
 
     # Replicate args and kwargs
     if args:
@@ -77,36 +44,11 @@ def data_parallelism(devices, fn, *args, **kwargs):
 
     # Now make the parallel call.
     outputs = []
-    cache = {}
-    tensor_to_var = {}
 
     for i in range(num_worker):
-        worker = "/gpu:%d" % devices[i]
-        device_setter = _create_device_setter(False, worker, len(devices))
-
-        def daisy_chain_getter(getter, name, *args, **kwargs):
-            device_var_key = (worker, name)
-            if device_var_key in cache:
-                return cache[device_var_key]
-            if name in cache:
-                last_device_v = cache[name]
-                var = tensor_to_var[last_device_v]
-                val = tf.identity(last_device_v)
-            else:
-                var = getter(name, *args, **kwargs)
-                val = var.read_value()
-
-            # keep track of the original variable
-            tensor_to_var[val] = var
-            # update the cache
-            cache[name] = val
-            cache[device_var_key] = val
-            return val
-
-        with tf.variable_scope(tf.get_variable_scope(), reuse=(i != 0),
-                               custom_getter=None):
+        with tf.variable_scope(tf.get_variable_scope(), reuse=(i != 0)):
             with tf.name_scope("parallel_%d" % i):
-                with tf.device(device_setter):
+                with tf.device(devices[i]):
                     outputs.append(fns[i](*new_args[i], **new_kwargs[i]))
 
     if isinstance(outputs[0], tuple):
@@ -118,6 +60,7 @@ def data_parallelism(devices, fn, *args, **kwargs):
 
 def shard_features(features, device_list):
     num_datashards = len(device_list)
+    device_list = ["gpu:%d" % d for d in device_list]
 
     sharded_features = {}
 
@@ -140,12 +83,7 @@ def shard_features(features, device_list):
     return datashard_to_features
 
 
-def parallel_model(model_fn, features, devices, use_cpu=False):
-    devices = ["gpu:%d" % d for d in devices]
-
-    if use_cpu:
-        devices += ["cpu:0"]
-
+def parallel_model(model_fn, features, devices):
     if len(devices) == 1:
         return [model_fn(features)]
 

@@ -324,7 +324,7 @@ def print_variables():
                         str(v.shape).ljust(20))
         v_size = np.prod(np.array(v.shape.as_list())).tolist()
         total_size += v_size
-        tf.logging.info("Total trainable variables size: %d", total_size)
+    tf.logging.info("Total trainable variables size: %d", total_size)
 
 
 def main(args):
@@ -388,7 +388,7 @@ def main(args):
             loss = loss + tf.losses.get_regularization_loss()
 
         # Print parameters
-        if not args.distribute or distribute.rank == 0:
+        if not args.distribute or distribute.rank() == 0:
             print_variables()
 
         learning_rate = get_learning_rate_decay(params.learning_rate,
