@@ -45,7 +45,8 @@ def _collect_gradients(gradients, variables):
 
 
 def _gradients_with_loss_scaling(loss, variables, loss_scale):
-    grads = tf.gradients(loss * loss_scale, variables)
+    grads = tf.gradients(loss * loss_scale, variables,
+                         colocate_gradients_with_ops=True)
     scaled_grads = []
 
     for grad in grads:

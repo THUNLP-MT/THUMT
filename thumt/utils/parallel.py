@@ -60,8 +60,6 @@ def data_parallelism(devices, fn, *args, **kwargs):
 
 def shard_features(features, device_list):
     num_datashards = len(device_list)
-    device_list = ["gpu:%d" % d for d in device_list]
-
     sharded_features = {}
 
     for k, v in six.iteritems(features):
