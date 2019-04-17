@@ -88,6 +88,27 @@ def combine_heads(inputs, name=None):
         return x
 
 
+def create_rpr(orginal_var, length_q, length_kv, max_relative_dis, name=None):
+    """ Create relative positional representation 
+    :param orginal_var: A tensor with shape [2*max_relative_dis+1, depth]
+    :param length_q: An integer
+    :param length_kv: An integer
+    :param max_relative_dis: An integer
+    :returns: A tensor with shape [length_q, length_kv, depth]
+    """
+
+    with tf.name_scope(name, default_name="create_rpr", values=[orginal_var]):
+        idxs = tf.reshape(tf.range(length_kv), [-1, 1]) # only self-attention
+        idys = tf.reshape(tf.range(length_kv), [1, -1])
+        ids = idxs - idys
+        ids = ids + max_relative_dis
+        ids = tf.maximum(ids, 0)
+        ids = tf.minimum(ids, 2*max_relative_dis)
+        ids = ids[-length_q:, :]
+        rpr = tf.gather(orginal_var, ids)
+        return rpr
+
+
 def attention_bias(inputs, mode, inf=-1e9, dtype=None, name=None):
     """ A bias tensor used in attention mechanism
     :param inputs: A tensor
@@ -291,7 +312,7 @@ def additive_attention(queries, keys, values, bias, hidden_size, concat=False,
 
 
 def multiplicative_attention(queries, keys, values, bias, keep_prob=None,
-                             name=None):
+                             name=None, rpr=None):
     """ Multiplicative attention mechanism. This layer is implemented using
         dot-product operation.
 
@@ -301,6 +322,7 @@ def multiplicative_attention(queries, keys, values, bias, keep_prob=None,
     :param bias: A tensor
     :param keep_prob: a scalar in (0, 1]
     :param name: the name of this operation
+    :param rpr: the name of this operation
 
     :returns: A dict with the following keys:
         weights: A tensor with shape [batch, heads, length_q, length_kv]
@@ -309,9 +331,27 @@ def multiplicative_attention(queries, keys, values, bias, keep_prob=None,
 
     with tf.name_scope(name, default_name="multiplicative_attention",
                        values=[queries, keys, values, bias]):
-        # shape: [batch, heads, length_q, length_kv]
-        logits = tf.matmul(queries, keys, transpose_b=True)
 
+        q_shape = tf.shape(queries)
+        bs, hd, lq, dk = q_shape[0], q_shape[1], q_shape[2], q_shape[3]
+        lk = tf.shape(keys)[2]
+        dv = tf.shape(values)[3]
+
+        if rpr is not None:
+            rpr_k, rpr_v = rpr['rpr_k'], rpr['rpr_v'] # (lq, lk, dk), (lq, lk, dv)
+
+        if rpr is None:
+            logits = tf.matmul(queries, keys, transpose_b=True)
+        else: # self-attention with relative position representaion
+            logits_part1 = tf.matmul(queries, keys, transpose_b=True) # bs, hd, lq, lk
+
+            queries = tf.reshape(tf.transpose(queries, [2, 0, 1, 3]), [lq, bs*hd, dk]) # lq, bs*hd, dk
+            logits_part2 = tf.matmul(queries, tf.transpose(rpr_k, [0, 2, 1]))  # lq, bs*hd, lk
+            logits_part2 = tf.reshape(tf.transpose(logits_part2, [1, 0, 2]), [bs, hd, lq, lk])
+
+            logits = logits_part1 + logits_part2 # bs, hd, lq, lk
+
+        # shape: [batch, heads, length_q, length_kv]
         if bias is not None:
             logits += bias
 
@@ -320,14 +360,25 @@ def multiplicative_attention(queries, keys, values, bias, keep_prob=None,
         if keep_prob is not None and keep_prob < 1.0:
             weights = tf.nn.dropout(weights, keep_prob)
 
-        outputs = tf.matmul(weights, values)
+        if rpr is None:
+            outputs = tf.matmul(weights, values)  # bs, hd, lq, dv
+        else: # self-attention with relative position representaion
+            outputs_part1 = tf.matmul(weights, values)  # bs, hd, lq, dv
+
+            weights = tf.reshape(tf.transpose(weights, [2, 0, 1, 3]), [lq, bs*hd, lk]) # lq, bs*hd, lk
+            outputs_part2 = tf.matmul(weights, rpr_v) # lq, bs*hd, dv
+            outputs_part2 = tf.reshape(tf.transpose(outputs_part2, [1, 0, 2]), [bs, hd, lq, dv])
+
+            outputs = outputs_part1 + outputs_part2 # bs, hd, lq, dv
+            weights = tf.reshape(tf.transpose(weights, [1, 0, 2]), [bs, hd, lq, lk]) # bs, hd, lq, lk
 
         return {"weights": weights, "outputs": outputs}
 
 
 def multihead_attention(queries, memories, bias, num_heads, key_size,
                         value_size, output_size, keep_prob=None, output=True,
-                        state=None, summary=True, dtype=None, scope=None):
+                        state=None, summary=True, dtype=None, scope=None,
+                        max_relative_dis=None):
     """ Multi-head scaled-dot-product attention with input/output
         transformations.
 
@@ -344,6 +395,7 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
     :param summary: Use image summary
     :param dtype: An optional instance of tf.DType
     :param scope: An optional string
+    :param max_relative_dis: An integer
 
     :returns: A dict with the following keys:
         weights: A tensor with shape [batch, heads, length_q, length_kv]
@@ -385,12 +437,26 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         k = split_heads(k, num_heads)
         v = split_heads(v, num_heads)
 
+        # get length
+        length_q = tf.shape(q)[2]
+        length_kv = tf.shape(k)[2]
+
         # scale query
         key_depth_per_head = key_size // num_heads
         q *= key_depth_per_head ** -0.5
 
-        # attention
-        results = multiplicative_attention(q, k, v, bias, keep_prob)
+        # relative position representation (only in self-attention)
+        if max_relative_dis and memories is None:
+            rpr_k = tf.get_variable('rpr_k', [2*max_relative_dis+1, key_size//num_heads])
+            rpr_v = tf.get_variable('rpr_v', [2*max_relative_dis+1, value_size//num_heads])
+            rpr_k = create_rpr(rpr_k, length_q, length_kv, max_relative_dis)
+            rpr_v = create_rpr(rpr_v, length_q, length_kv, max_relative_dis)
+            rpr = {'rpr_k': rpr_k, 'rpr_v': rpr_v}
+            # attention
+            results = multiplicative_attention(q, k, v, bias, keep_prob, rpr=rpr)
+        else:
+            # attention
+            results = multiplicative_attention(q, k, v, bias, keep_prob)
 
         # combine heads
         weights = results["weights"]
