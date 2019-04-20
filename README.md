@@ -1,13 +1,14 @@
 # THUMT: An Open Source Toolkit for Neural Machine Translation
 ## Contents
 * [Introduction](#introduction)
-* [Online Demo](#demo)
+* [Online Demo](#online-demo)
 * [Implementations](#implementations)
 * [License](#license)
 * [Citation](#citation)
 * [Development Team](#development-team)
 * [Contributors](#contributors)
 * [Contact](#contact)
+* [Derivative Repositories](#derivative-repositories)
 
 ## Introduction
 
@@ -58,3 +59,8 @@ Project members: Jiacheng Zhang, Yanzhuo Ding, Shiqi Shen, Yong Cheng
 ## Contact
 
 If you have questions, suggestions and bug reports, please email [thumt17@gmail.com](mailto:thumt17@gmail.com).
+
+## Derivative Repositories
+
+[Document-Transformer](https://github.com/THUNLP-MT/Document-Transformer) (Improving the Transformer Translation Model with Document-Level Context)
+[PR4NMT](https://github.com/THUNLP-MT/PR4NMT) (Prior Knowledge Integration for Neural Machine Translation using Posterior Regularization)
