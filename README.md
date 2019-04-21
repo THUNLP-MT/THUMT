@@ -37,6 +37,10 @@ The following table summarizes the features of two implementations:
 
 We recommend using [THUMT-TensorFlow](https://github.com/thumt/THUMT), which delivers better translation performance than [THUMT-Theano](https://github.com/thumt/THUMT/tree/theano). We will keep adding new features to [THUMT-TensorFlow](https://github.com/thumt/THUMT).
 
+It is also possible to exploit layer-wise relevance propagation to visualize the relevance between source and target words with THUMT:
+
+![Visualization with LRP](https://raw.githubusercontent.com/THUNLP-MT/THUMT/master/docs/vis_transformer.png)
+
 ## License
 
 The source code is dual licensed. Open source licensing is under the [BSD-3-Clause](https://opensource.org/licenses/BSD-3-Clause), which allows free use for research purposes. For commercial licensing, please email [thumt17@gmail.com](mailto:thumt17@gmail.com).
