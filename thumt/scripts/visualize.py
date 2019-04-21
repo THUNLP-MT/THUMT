@@ -32,6 +32,7 @@ trg_words.append('<eos>')
 
 len_t = len(trg_words)
 len_s = len(src_words)
+rlv = rlv[:len_t*len_s]
 rlv = numpy.reshape(rlv, [len_t, len_s])
 
 # set the scale
