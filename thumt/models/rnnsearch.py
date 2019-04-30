@@ -8,9 +8,11 @@ from __future__ import print_function
 import copy
 
 import tensorflow as tf
-import thumt.interface as interface
 import thumt.layers as layers
-import thumt.utils.getter as getter
+import thumt.losses as losses
+import thumt.utils as utils
+
+from thumt.models.model import NMTModel
 
 
 def _copy_through(time, length, output, new_output):
@@ -308,7 +310,7 @@ def model_graph(features, mode, params):
     logits = tf.reshape(logits, [-1, tgt_vocab_size])
     labels = features["target"]
 
-    ce = layers.nn.smoothed_softmax_cross_entropy_with_logits(
+    ce = losses.smoothed_softmax_cross_entropy_with_logits(
         logits=logits,
         labels=labels,
         smoothing=params.label_smoothing,
@@ -331,7 +333,7 @@ def model_graph(features, mode, params):
     return loss
 
 
-class RNNsearch(interface.NMTModel):
+class RNNsearch(NMTModel):
 
     def __init__(self, params, scope="rnnsearch"):
         super(RNNsearch, self).__init__(params=params, scope=scope)
@@ -341,10 +343,7 @@ class RNNsearch(interface.NMTModel):
             if params is None:
                 params = self.parameters
 
-            if dtype != tf.float32:
-                custom_getter = getter.fp32_variable_getter
-            else:
-                custom_getter = None
+            custom_getter = utils.custom_getter if dtype else None
 
             with tf.variable_scope(self._scope, initializer=initializer,
                                    regularizer=regularizer, reuse=reuse,

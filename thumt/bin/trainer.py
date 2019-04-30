@@ -20,7 +20,7 @@ import thumt.models as models
 import thumt.utils.distribute as distribute
 import thumt.utils.hooks as hooks
 import thumt.utils.inference as inference
-import thumt.utils.optimize as optimize
+import thumt.utils.optimizers as optimizers
 import thumt.utils.parallel as parallel
 
 
@@ -45,7 +45,7 @@ def parse_args(args=None):
                         help="Path of reference files")
     parser.add_argument("--checkpoint", type=str,
                         help="Path to pre-trained checkpoint")
-    parser.add_argument("--fp16", action="store_true",
+    parser.add_argument("--half", action="store_true",
                         help="Enable FP16 training")
     parser.add_argument("--distribute", action="store_true",
                         help="Enable distributed training")
@@ -343,7 +343,7 @@ def main(args):
     override_parameters(params, args)
 
     # Export all parameters and model specific parameters
-    if not args.distribute or distribute.rank() == 0:
+    if distribute.rank() == 0:
         export_params(params.output, "params.json", params)
         export_params(
             params.output,
@@ -361,9 +361,6 @@ def main(args):
                 os.path.join(params.record, "*train*"), "train", params
             )
 
-        update_cycle = params.update_cycle
-        features, init_op = cache.cache_features(features, update_cycle)
-
         # Build model
         initializer = get_initializer(params)
         regularizer = tf.contrib.layers.l1_l2_regularizer(
@@ -371,29 +368,25 @@ def main(args):
         model = model_cls(params)
         # Create global step
         global_step = tf.train.get_or_create_global_step()
-        dtype = tf.float16 if args.fp16 else None
+        dtype = tf.float16 if args.half else None
 
-        if args.distribute:
-            training_func = model.get_training_func(initializer, regularizer,
-                                                    dtype)
-            loss = training_func(features)
-        else:
-            # Multi-GPU setting
-            sharded_losses = parallel.parallel_model(
-                model.get_training_func(initializer, regularizer, dtype),
-                features,
-                params.device_list
-            )
-            loss = tf.add_n(sharded_losses) / len(sharded_losses)
-            loss = loss + tf.losses.get_regularization_loss()
+        # Multi-GPU setting
+        sharded_losses = parallel.parallel_model(
+            model.get_training_func(initializer, regularizer, dtype),
+            features,
+            params.device_list
+        )
+        loss = tf.add_n(sharded_losses) / len(sharded_losses)
+        loss = loss + tf.losses.get_regularization_loss()
 
-        # Print parameters
-        if not args.distribute or distribute.rank() == 0:
+        if distribute.rank() == 0:
             print_variables()
 
         learning_rate = get_learning_rate_decay(params.learning_rate,
                                                 global_step, params)
         learning_rate = tf.convert_to_tensor(learning_rate, dtype=tf.float32)
+
+        tf.summary.scalar("loss", loss)
         tf.summary.scalar("learning_rate", learning_rate)
 
         # Create optimizer
@@ -410,11 +403,22 @@ def main(args):
         else:
             raise RuntimeError("Optimizer %s not supported" % params.optimizer)
 
-        loss, ops = optimize.create_train_op(
-            loss, opt, global_step,
-            distribute.all_reduce if args.distribute else None, args.fp16,
-            params)
-        restore_op = restore_variables(args.checkpoint)
+        opt = optimizers.MultiStepOptimizer(opt, params.update_cycle)
+
+        if args.half:
+            opt = optimizers.LossScalingOptimizer(opt, params.loss_scale)
+
+        # Optimization
+        grads_and_vars = opt.compute_gradients(
+            loss, colocate_gradients_with_ops=True)
+
+        if params.clip_grad_norm:
+            grads, var_list = list(zip(*grads_and_vars))
+            grads, _ = tf.clip_by_global_norm(grads, params.clip_grad_norm)
+            grads_and_vars = zip(grads, var_list)
+
+        train_op = opt.apply_gradients(grads_and_vars,
+                                       global_step=global_step)
 
         # Validation
         if params.validation and params.references[0]:
@@ -424,9 +428,7 @@ def main(args):
         else:
             eval_input_fn = None
 
-        # Add hooks
-        multiplier = tf.convert_to_tensor([update_cycle, 1])
-
+        # Hooks
         train_hooks = [
             tf.train.StopAtStepHook(last_step=params.train_steps),
             tf.train.NanTensorHook(loss),
@@ -434,19 +436,14 @@ def main(args):
                 {
                     "step": global_step,
                     "loss": loss,
-                    "source": tf.shape(features["source"]) * multiplier,
-                    "target": tf.shape(features["target"]) * multiplier
+                    "source": tf.shape(features["source"]),
+                    "target": tf.shape(features["target"])
                 },
                 every_n_iter=1
             )
         ]
 
-        if args.distribute:
-            train_hooks.append(distribute.get_broadcast_hook())
-
-        config = session_config(params)
-
-        if not args.distribute or distribute.rank() == 0:
+        if distribute.rank() == 0:
             # Add hooks
             save_vars = tf.trainable_variables() + [global_step]
             saver = tf.train.Saver(
@@ -456,56 +453,55 @@ def main(args):
             )
             tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
             train_hooks.append(
-                tf.train.CheckpointSaverHook(
-                    checkpoint_dir=params.output,
-                    save_secs=params.save_checkpoint_secs or None,
-                    save_steps=params.save_checkpoint_steps or None,
-                    saver=saver
-                )
+                hooks.MultiStepHook(
+                    tf.train.CheckpointSaverHook(
+                        checkpoint_dir=params.output,
+                        save_secs=params.save_checkpoint_secs or None,
+                        save_steps=params.save_checkpoint_steps or None,
+                        saver=saver),
+                step=params.update_cycle)
             )
 
-        if eval_input_fn is not None:
-            if not args.distribute or distribute.rank() == 0:
+            broadcast_hook = distribute.get_broadcast_hook()
+            if broadcast_hook:
+                train_hooks.append(broadcast_hook)
+
+            if eval_input_fn is not None:
                 train_hooks.append(
-                    hooks.EvaluationHook(
-                        lambda f: inference.create_inference_graph(
-                            [model], f, params
-                        ),
-                        lambda: eval_input_fn(eval_inputs, params),
-                        lambda x: decode_target_ids(x, params),
-                        params.output,
-                        config,
-                        params.keep_top_checkpoint_max,
-                        eval_secs=params.eval_secs,
-                        eval_steps=params.eval_steps
+                    hooks.MultiStepHook(
+                        hooks.EvaluationHook(
+                            lambda f: inference.create_inference_graph(
+                                [model], f, params
+                            ),
+                            lambda: eval_input_fn(eval_inputs, params),
+                            lambda x: decode_target_ids(x, params),
+                            params.output,
+                            session_config(params),
+                            params.keep_top_checkpoint_max,
+                            eval_secs=params.eval_secs,
+                            eval_steps=params.eval_steps
+                        )
                     )
                 )
-
-        def restore_fn(step_context):
-            step_context.session.run(restore_op)
-
-        def step_fn(step_context):
-            # Bypass hook calls
-            step_context.session.run([init_op, ops["zero_op"]])
-            for i in range(update_cycle - 1):
-                step_context.session.run(ops["collect_op"])
-
-            return step_context.run_with_hooks(ops["train_op"])
-
-        # Create session, do not use default CheckpointSaverHook
-        if not args.distribute or distribute.rank() == 0:
             checkpoint_dir = params.output
         else:
             checkpoint_dir = None
 
+        restore_op = restore_variables(args.checkpoint)
+
+        def restore_fn(step_context):
+            step_context.session.run(restore_op)
+
+        # Create session, do not use default CheckpointSaverHook
         with tf.train.MonitoredTrainingSession(
                 checkpoint_dir=checkpoint_dir, hooks=train_hooks,
-                save_checkpoint_secs=None, config=config) as sess:
+                save_checkpoint_secs=None,
+                config=session_config(params)) as sess:
             # Restore pre-trained variables
             sess.run_step_fn(restore_fn)
 
             while not sess.should_stop():
-                sess.run_step_fn(step_fn)
+                sess.run(train_op)
 
 
 if __name__ == "__main__":

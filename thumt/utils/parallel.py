@@ -51,10 +51,6 @@ def data_parallelism(devices, fn, *args, **kwargs):
                 with tf.device(devices[i]):
                     outputs.append(fns[i](*new_args[i], **new_kwargs[i]))
 
-    if isinstance(outputs[0], tuple):
-        outputs = list(zip(*outputs))
-        outputs = tuple([list(o) for o in outputs])
-
     return outputs
 
 
@@ -62,13 +58,25 @@ def shard_features(features, device_list):
     num_datashards = len(device_list)
     sharded_features = {}
 
-    for k, v in six.iteritems(features):
-        v = tf.convert_to_tensor(v)
-        if not v.shape.as_list():
-            v = tf.expand_dims(v, axis=-1)
-            v = tf.tile(v, [num_datashards])
-        with tf.device(v.device):
-            sharded_features[k] = tf.split(v, num_datashards, 0)
+    with tf.device("/cpu:0"):
+        for k, v in six.iteritems(features):
+            v = tf.convert_to_tensor(v)
+
+            if not v.shape.as_list():
+                v = tf.expand_dims(v, axis=-1)
+                v = tf.tile(v, [num_datashards])
+
+            batch_size = tf.shape(v)[0]
+            size_splits = []
+
+            for i in range(num_datashards):
+                size_splits.append(
+                    tf.cond(tf.greater(tf.mod(batch_size, num_datashards), i),
+                            lambda: batch_size // num_datashards + 1,
+                            lambda: batch_size // num_datashards)
+                )
+
+            sharded_features[k] = tf.split(v, size_splits, 0)
 
     datashard_to_features = []
 

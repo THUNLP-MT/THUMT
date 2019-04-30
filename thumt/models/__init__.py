@@ -19,13 +19,13 @@ def get_model(name, lrp=False):
         if not lrp:
             return thumt.models.rnnsearch.RNNsearch
         else:
-            return thumt.models.rnnsearch_lrp.RNNsearch_lrp
+            return thumt.models.rnnsearch_lrp.RNNsearchLRP
     elif name == "seq2seq":
         return thumt.models.seq2seq.Seq2Seq
     elif name == "transformer":
         if not lrp:
             return thumt.models.transformer.Transformer
         else:
-            return thumt.models.transformer_lrp.Transformer_lrp
+            return thumt.models.transformer_lrp.TransformerLRP
     else:
         raise LookupError("Unknown model %s" % name)

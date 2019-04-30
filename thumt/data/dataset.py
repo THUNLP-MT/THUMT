@@ -151,13 +151,9 @@ def get_training_input(filenames, params):
         features["target"] = tgt_table.lookup(features["target"])
 
         # Batching
-        if distribute.is_distributed_training_mode():
-            shard_multiplier = params.update_cycle
-        else:
-            shard_multiplier = len(params.device_list) * params.update_cycle
         features = batch_examples(features, params.batch_size,
                                   params.max_length, params.mantissa_bits,
-                                  shard_multiplier=shard_multiplier,
+                                  shard_multiplier=len(params.device_list),
                                   length_multiplier=params.length_multiplier,
                                   constant=params.constant_batch_size,
                                   num_threads=params.num_threads)
