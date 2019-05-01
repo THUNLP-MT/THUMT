@@ -12,7 +12,6 @@ import six
 
 import numpy as np
 import tensorflow as tf
-import thumt.data.cache as cache
 import thumt.data.dataset as dataset
 import thumt.data.record as record
 import thumt.data.vocab as vocabulary
@@ -480,7 +479,8 @@ def main(args):
                             params.keep_top_checkpoint_max,
                             eval_secs=params.eval_secs,
                             eval_steps=params.eval_steps
-                        )
+                        ),
+                        step=params.update_cycle
                     )
                 )
             checkpoint_dir = params.output

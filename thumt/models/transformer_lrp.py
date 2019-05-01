@@ -10,10 +10,11 @@ import copy
 import tensorflow as tf
 import thumt.layers as layers
 import thumt.losses as losses
-import thumt.utils.lrp_utils as lrp
+import thumt.utils.lrp as lrp
 import thumt.utils.weight_ratio as wr
 
 from thumt.models.model import NMTModel
+
 
 def normalize(matrix, negative=False):
     if negative:
