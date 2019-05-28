@@ -8,9 +8,12 @@ from __future__ import print_function
 import copy
 
 import tensorflow as tf
-import thumt.interface as interface
 import thumt.layers as layers
-import thumt.utils.lrp_utils as lrp
+import thumt.losses as losses
+import thumt.utils.lrp as lrp
+
+from thumt.models.model import NMTModel
+
 
 def normalize(matrix, negative=False):
     if negative:
@@ -417,7 +420,7 @@ def model_graph(features, labels, params):
     w_x_true = tf.gather_nd(w_x_true, labels_lrp)
     w_x_true = tf.reshape(w_x_true, [bs, -1, tf.shape(w_x_true)[-1]])
 
-    ce = layers.nn.smoothed_softmax_cross_entropy_with_logits(
+    ce = losses.smoothed_softmax_cross_entropy_with_logits(
         logits=logits,
         labels=labels,
         smoothing=params.label_smoothing,
@@ -440,9 +443,9 @@ def model_graph(features, labels, params):
     return loss, rlv_info
 
 
-class RNNsearch_lrp(interface.NMTModel):
+class RNNsearchLRP(NMTModel):
     def __init__(self, params, scope="rnnsearch"):
-        super(RNNsearch_lrp, self).__init__(params=params, scope=scope)
+        super(RNNsearchLRP, self).__init__(params=params, scope=scope)
 
     def get_training_func(self, initializer):
         def training_fn(features, params=None):

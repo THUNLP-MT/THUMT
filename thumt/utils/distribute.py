@@ -27,20 +27,25 @@ def is_distributed_training_mode():
 
 
 def rank():
-    return _ENGINE.rank()
+    return _ENGINE.rank() if _ENGINE is not None else 0
 
 
 def local_rank():
-    return _ENGINE.local_rank()
+    return _ENGINE.local_rank() if _ENGINE is not None else 0
 
 
 def size():
-    return _ENGINE.size()
+    return _ENGINE.size() if _ENGINE is not None else 1
 
 
 def all_reduce(tensor):
+    if _ENGINE is None:
+        return tensor
+
     return _ENGINE.allreduce(tensor, compression=_ENGINE.Compression.fp16)
 
 
 def get_broadcast_hook():
+    if not _ENGINE:
+        return None
     return _ENGINE.BroadcastGlobalVariablesHook(0)

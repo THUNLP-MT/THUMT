@@ -356,3 +356,28 @@ class EvaluationHook(tf.train.SessionRunHook):
 
             best_score = records[0][1]
             tf.logging.info("Best score: %f" % best_score)
+
+
+class MultiStepHook(tf.train.SessionRunHook):
+
+    def __init__(self, hook, step=1):
+        self._hook = hook
+        self._step = step
+        self._iter = 0 if step == 1 else 1
+
+    def begin(self):
+        self._hook.begin()
+
+    def after_create_session(self, session, coord):
+        self._hook.after_create_session(session, coord)
+
+    def before_run(self, run_context):
+        return self._hook.before_run(run_context)
+
+    def after_run(self, run_context, run_values):
+        if self._iter % self._step == 0:
+            self._hook.after_run(run_context, run_values)
+        self._iter = (self._iter + 1) % self._step
+
+    def end(self, session):
+        self._hook.end(session)

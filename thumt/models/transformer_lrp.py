@@ -8,10 +8,13 @@ from __future__ import print_function
 import copy
 
 import tensorflow as tf
-import thumt.interface as interface
 import thumt.layers as layers
-import thumt.utils.lrp_utils as lrp
+import thumt.losses as losses
+import thumt.utils.lrp as lrp
 import thumt.utils.weight_ratio as wr
+
+from thumt.models.model import NMTModel
+
 
 def normalize(matrix, negative=False):
     if negative:
@@ -343,7 +346,7 @@ def model_graph(features, labels, mode, params):
     logits = tf.matmul(decoder_output, weights, False, True)
 
     # label smoothing
-    ce = layers.nn.smoothed_softmax_cross_entropy_with_logits(
+    ce = losses.smoothed_softmax_cross_entropy_with_logits(
         logits=logits,
         labels=labels,
         smoothing=params.label_smoothing,
@@ -360,9 +363,9 @@ def model_graph(features, labels, mode, params):
     return loss, rlv_info
 
 
-class Transformer_lrp(interface.NMTModel):
+class TransformerLRP(NMTModel):
     def __init__(self, params, scope="transformer"):
-        super(Transformer_lrp, self).__init__(params=params, scope=scope)
+        super(TransformerLRP, self).__init__(params=params, scope=scope)
 
     def get_training_func(self, initializer):
         def training_fn(features, params=None):
