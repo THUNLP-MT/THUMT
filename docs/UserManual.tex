@@ -220,12 +220,13 @@ $ python THUMT/thumt/bin/trainer.py --input corpus.tc.32k.de.shuf
 corpus.tc.32k.en.shuf --vocabulary vocab.32k.de.txt
 vocab.32k.en.txt --model transformer --validation
 newstest2014.tc.32k.de --references newstest2014.tc.32k.en
---parameters=batch_size=6250,device_list=[0],train_steps=200000
+--parameters=batch_size=6250,device_list=[0],update_cycle=4,
+train_steps=200000
 \end{everbatim}
 \\
-Note that we set the \verb|batch_size| to 6,250 words instead of 6,250 sentences. By default, the batch size for the Transformer model is defined in terms of word number rather than sentence number in THUMT.
+Note that we set the \verb|batch_size| on each device (e.g. GPU) to 6,250 words instead of 6,250 sentences. By default, the batch size for the Transformer model is defined in terms of word number rather than sentence number in THUMT. We set \verb|update_cycle| to 4, which means the model parameters are updated every 4 batches. This effectively simulates the setting of ``\verb|batch_size|=25,000'' and requires less GPU memory.
 
-``\verb|device_list=[0]|'' suggests that \verb|gpu0| is used to train the model. THUMT supports to train NMT models on multiple GPUs. If both \verb|gpu0| and \verb|gpu1| are available, simply set ``\verb|device_list=[0,1]|''. You may use the \verb|nvidia-smi| command to find unused GPUs.
+``\verb|device_list=[0]|'' suggests that \verb|gpu0| is used to train the model. THUMT supports to train NMT models on multiple GPUs. If both \verb|gpu0| and \verb|gpu1| are available, simply set ``\verb|device_list=[0,1],update_cycle=2|''. You may use the \verb|nvidia-smi| command to find unused GPUs.
 
 By setting ``\verb|train_steps=200000|'', the training process will terminate at iteration 200,000. During the training, the \verb|trainer.py| script creates a \verb|train| folder to store intermediate models called {\em checkpoints}, which will be evaluated on the validation set periodically. Only a small number of checkpoints that achieves highest BLEU scores on the validation set will be saved in the \verb|train/eval| folder. This folder will be used in decoding. Please refer to Appendix \ref{appendix:1} for more details about the parameters of the \verb|trainer.py| script.
 
