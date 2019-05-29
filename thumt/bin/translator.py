@@ -327,13 +327,11 @@ def main(args):
         scores = []
 
         for result in results:
-            for item in result[0]:
-                outputs.append(item.tolist())
-            for item in result[1]:
-                scores.append(item.tolist())
-
-        outputs = list(itertools.chain(*outputs))
-        scores = list(itertools.chain(*scores))
+            for shard in result:
+                for item in shard[0]:
+                    outputs.append(item.tolist())
+                for item in shard[1]:
+                    scores.append(item.tolist())
 
         restored_inputs = []
         restored_outputs = []
