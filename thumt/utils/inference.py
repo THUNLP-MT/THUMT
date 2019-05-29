@@ -148,8 +148,8 @@ def beam_search(func, state, batch_size, beam_size, max_length, alpha,
         log_probs = s.inputs[1]
         finished_flags = s.finish[0]
         finished_scores = s.finish[2]
-        max_lp = tf.pow(((5.0 + tf.to_float(max_step)) / 6.0), alpha)
-        best_alive_score = log_probs[:, 0] / max_lp
+        lp = tf.pow(((5.0 + tf.to_float(t)) / 6.0), alpha)
+        best_alive_score = log_probs[:, 0] / lp
         worst_finished_score = tf.reduce_min(
             finished_scores * tf.to_float(finished_flags), axis=1)
         add_mask = 1.0 - tf.to_float(tf.reduce_any(finished_flags, 1))
