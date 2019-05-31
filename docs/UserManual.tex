@@ -63,7 +63,7 @@ As shown in figure \ref{fig:visualization}, it is also possible to exploit layer
 
 \begin{figure}[h]
     \centering
-    \includegraphics[width=1\textwidth]{fig/vis_transformer.pdf}
+    \includegraphics[width=1\textwidth]{fig/vis_transformer.png}
     \caption{Visualizing the relevance between source and target words.}
     \label{fig:visualization}
 \end{figure}
@@ -81,7 +81,7 @@ THUMT supports Linux i686 and Mac OSX. The following third-party software and to
 \subsection{Installing THUMT}
 The source code of THUMT is available at \href{https://github.com/thumt/THUMT}{https://github.com/thumt/THUMT}. Here is a brief guide on how to install THUMT.
 
-\subsubsection{Step1: Downloading the Package}
+\subsubsection{Step 1: Downloading the Package}
 Download the package using the following command:
 \\
 \begin{everbatim}
@@ -110,6 +110,8 @@ To set these environment variable permanently for all future bash sessions, user
 
 \section{User Guide}
 
+We provide a step-by-step guide with a running example: WMT 2017 German-English news translation shared task.
+
 \subsection{Data Preparation}
 \subsubsection{Obtaining the Datasets}
 Running THUMT involves three types of datasets:
@@ -120,7 +122,8 @@ Running THUMT involves three types of datasets:
 \item {\em Test set}: a set of source sentences paired with single or multiple target translations used for evaluating translation performance on unseen texts.
 \end{enumerate}
 
-In this user manual, we take the preprocessed German-English dataset of the WMT 2017 news translation shared task as an example.\footnote{\href{http://data.statmt.org/wmt17/translation-task/preprocessed/de-en/}{http://data.statmt.org/wmt17/translation-task/preprocessed/de-en/}}  Download and unpack the two files \verb|corpus.tc.de.gz| and \verb|corpus.tc.en.gz|:
+In this user manual, we'll use the preprocessed official dataset
+\footnote{\href{http://data.statmt.org/wmt17/translation-task/preprocessed/de-en/}{http://data.statmt.org/wmt17/translation-task/preprocessed/de-en/}}.  Download and unpack the two files \verb|corpus.tc.de.gz| and \verb|corpus.tc.en.gz|:
 \\
 \begin{everbatim}
 $ gunzip corpus.tc.de.gz corpus.tc.en.gz
@@ -166,25 +169,25 @@ $ python subword-nmt/apply_bpe.py --vocabulary vocab.en
 corpus.tc.32k.en
 \end{everbatim}
 \\
-
-The validation set also needs to be processed using the \verb|apply_bpe.py| script.
+The source side of the validation set and the test set also needs to be processed using the \verb|apply_bpe.py| script.
 \\
 \begin{everbatim}
 $ python subword-nmt/apply_bpe.py --vocabulary vocab.de
 --vocabulary-threshold 50 -c bpe32k < newstest2014.tc.de >
 newstest2014.tc.32k.de
-$ python subword-nmt/apply_bpe.py --vocabulary vocab.en
---vocabulary-threshold 50 -c bpe32k < newstest2014.tc.en >
-newstest2014.tc.32k.en
-\end{everbatim}
-\\
-Finally, the source side of the test side is processed as well.
-\\
-\begin{everbatim}
 $ python subword-nmt/apply_bpe.py --vocabulary vocab.de
 --vocabulary-threshold 50 -c bpe32k < newstest2015.tc.de >
 newstest2015.tc.32k.de
 \end{everbatim}
+\\
+Kindly note that while the source side of the validation set and test set is applied with BPE operations, the target side of them are not needed to be applied. This is because when evaluating the translation outputs, we will restore them in the normal tokenization and compare them with the original ground-truth sentences.
+%Finally, the source side of the test side is processed as well.
+%\\
+%\begin{everbatim}
+%$ python subword-nmt/apply_bpe.py --vocabulary vocab.de
+%--vocabulary-threshold 50 -c bpe32k < newstest2015.tc.de >
+%newstest2015.tc.32k.de
+%\end{everbatim}
 
 \subsubsection{Shuffling Training Set}
 The next step is to shuffle the training set, which proves to be helpful for improving the translation quality. Simply run the following command:
@@ -219,16 +222,20 @@ The command for training a Transformer model is given by
 $ python THUMT/thumt/bin/trainer.py --input corpus.tc.32k.de.shuf
 corpus.tc.32k.en.shuf --vocabulary vocab.32k.de.txt
 vocab.32k.en.txt --model transformer --validation
-newstest2014.tc.32k.de --references newstest2014.tc.32k.en
+newstest2014.tc.32k.de --references newstest2014.tc.en
 --parameters=batch_size=6250,device_list=[0],update_cycle=4,
 train_steps=200000
 \end{everbatim}
 \\
 Note that we set the \verb|batch_size| on each device (e.g. GPU) to 6,250 words instead of 6,250 sentences. By default, the batch size for the Transformer model is defined in terms of word number rather than sentence number in THUMT. We set \verb|update_cycle| to 4, which means the model parameters are updated every 4 batches. This effectively simulates the setting of ``\verb|batch_size|=25,000'' and requires less GPU memory.
 
-``\verb|device_list=[0]|'' suggests that \verb|gpu0| is used to train the model. THUMT supports to train NMT models on multiple GPUs. If both \verb|gpu0| and \verb|gpu1| are available, simply set ``\verb|device_list=[0,1],update_cycle=2|''. You may use the \verb|nvidia-smi| command to find unused GPUs.
+``\verb|device_list=[0]|'' suggests that \verb|gpu0| is used to train the model. THUMT supports to train NMT models on multiple GPUs. If both \verb|gpu0| and \verb|gpu1| are available, simply set ``\verb|device_list=[0,1],update_cycle=2|'' for the same batch size of 25000 (but with the training speed doubled). You may use the \verb|nvidia-smi| command to find unused GPUs.
 
-By setting ``\verb|train_steps=200000|'', the training process will terminate at iteration 200,000. During the training, the \verb|trainer.py| script creates a \verb|train| folder to store intermediate models called {\em checkpoints}, which will be evaluated on the validation set periodically. Only a small number of checkpoints that achieves highest BLEU scores on the validation set will be saved in the \verb|train/eval| folder. This folder will be used in decoding. Please refer to Appendix \ref{appendix:1} for more details about the parameters of the \verb|trainer.py| script.
+By setting ``\verb|train_steps=200000|'', the training process will terminate at iteration 200,000. During the training, the \verb|trainer.py| script creates a \verb|train| folder to store intermediate models called {\em checkpoints}, which will be evaluated on the validation set periodically. 
+
+Please kindly note again that while the source side of the validation set is applied with BPE operations ( ``\verb|newstest2014.tc.32k.de|''), the target side of the validation set is in the original tokenization ( ``\verb|newstest2014.tc.en|'').
+
+Only a small number of checkpoints that achieves highest BLEU scores on the validation set will be saved in the \verb|train/eval| folder. This folder will be used in decoding. Please refer to Appendix \ref{appendix:1} for more details about the parameters of the \verb|trainer.py| script.
 
 \subsubsection{RNNsearch}
 
@@ -238,7 +245,7 @@ The command for training an RNNsearch model is given by
 $ python THUMT/thumt/bin/trainer.py --input corpus.tc.32k.de.shuf
 corpus.tc.32k.en.shuf --vocabulary vocab.32k.de.txt
 vocab.32k.en.txt --model rnnsearch --validation
-newstest2014.tc.32k.de --references newstest2014.tc.32k.en
+newstest2014.tc.32k.de --references newstest2014.tc.en
 --parameters=batch_size=128,device_list=[0],train_steps=200000
 \end{everbatim}
 \\
@@ -252,7 +259,7 @@ The command for training a Seq2Seq model is given by
 $ python THUMT/thumt/bin/trainer.py --input corpus.tc.32k.de.shuf
 corpus.tc.32k.en.shuf --vocabulary vocab.32k.de.txt
 vocab.32k.en.txt --model seq2seq --validation
-newstest2014.tc.32k.de --references newstest2014.tc.32k.en
+newstest2014.tc.32k.de --references newstest2014.tc.en
 --parameters=batch_size=128,device_list=[0],train_steps=200000
 \end{everbatim}
 \\
@@ -266,10 +273,13 @@ The command for translating the test set using the trained Transformer model is 
 $ python THUMT/thumt/bin/translator.py --models transformer
 --input newstest2015.tc.32k.de --output newstest2015.trans
 --vocabulary vocab.32k.de.txt vocab.32k.en.txt 
---checkpoints train/eval --parameters=device_list=[0]
+--checkpoints train/eval --parameters=device_list=[0],
+decode_alpha=0.6
 \end{everbatim}
 \\
-The commands for using RNNsearch and Seq2Seq models are similar except for the \verb|--models| argument. The translation file output by the \verb|translator.py| is \verb|newstest2015.trans|, which needs to be restored to the normal tokenization using the following command:
+The commands for using RNNsearch and Seq2Seq models are similar except for the \verb|--models| argument. Please kindly note that a lot of decoding techniques are actually working on the test set here, i.e. \verb|decode_alpha|; varying \verb|decode_alpha| during the command for training process in Section 3.2 only leads to varied translation performances on the evaluation set. 
+\\
+The translation file output by the \verb|translator.py| is \verb|newstest2015.trans|, which needs to be restored to the normal tokenization using the following command:
 \\
 \begin{everbatim}
 $ sed -r 's/(@@ )|(@@ ?$)//g' < newstest2015.trans >
@@ -314,11 +324,12 @@ Yes. THUMT supports to train NMT models on multiple GPUs. You may use the \verb|
 Yes. THUMT uses the \verb|checkpoint_averaging.py| script to average checkpoints generated during training to generate a better model. The script is located in the \verb|THUMT/thumt/scripts| folder. Simply run the following command:
 \\
 \begin{everbatim}
-$ python THUMT/thumt/scripts/checkpoint_averaging.py --path train
---checkpoints 5 --output averaged
+$ CUDA_VISIBLE_DEVICES=0 python THUMT/thumt/scripts/checkpoint_
+averaging.py --path train --checkpoints 5 --output averaged
 \end{everbatim}
 \\
-By default, the \verb|train| folder saves the last 20 checkpoints. The above command averages the last 5 checkpoints and saves the averaged model in the \verb|averaged| folder. You may change the number of checkpoints by modifying the \verb|--checkpoints| argument.
+By default, the \verb|train| folder saves the last 20 checkpoints. The above command averages the last 5 checkpoints and saves the averaged model in the \verb|averaged| folder. You may change the number of checkpoints by modifying the \verb|--checkpoints| argument. You can specify the GPU(s) to be used in \verb|CUDA_VISIBLE_DEVICES|.
+
 
 \subsection{Does THUMT support model ensemble?}
 
@@ -374,7 +385,6 @@ model.ckpt-5000
 INFO:tensorflow:Best score at step 5000: 0.283899
 \end{everbatim}
 \\
-
 Therefore, you may run the following command to obtain all BLEU scores on the validation set:
 \\
 \begin{everbatim}
