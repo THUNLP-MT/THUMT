@@ -336,7 +336,8 @@ By default, the \verb|train| folder saves the last 20 checkpoints. The above com
 Yes. Suppose THUMT runs four times on the same training data. Due to random initialization, the four trained models are different. The following command can be used to ensemble the four models located in four separated folders (e.g., \verb|run1|, \verb|run2|, \verb|run3|, and \verb|run4|):
 \\
 \begin{everbatim}
-$ python THUMT/thumt/bin/translator.py --models transformer
+$ python THUMT/thumt/bin/translator.py 
+--models transformer transformer transformer transformer
 --input newstest2015.tc.32k.de --output newstest2015.trans
 --vocabulary vocab.32k.de vocab.32k.en
 --checkpoints run1/train run2/train run3/train run4/train
