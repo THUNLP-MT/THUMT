@@ -39,7 +39,7 @@ We recommend using [THUMT-TensorFlow](https://github.com/thumt/THUMT), which del
 
 It is also possible to exploit layer-wise relevance propagation to visualize the relevance between source and target words with THUMT:
 
-![Visualization with LRP](https://raw.githubusercontent.com/THUNLP-MT/THUMT/master/docs/vis_transformer.png)
+![Visualization with LRP](https://raw.githubusercontent.com/THUNLP-MT/THUMT/master/docs/fig/vis_transformer.png)
 
 ## License
 
