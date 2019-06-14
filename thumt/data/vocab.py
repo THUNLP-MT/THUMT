@@ -30,7 +30,7 @@ def get_control_mapping(vocab, symbols):
 
     for i, token in enumerate(vocab):
         for symbol in symbols:
-            if symbol.decode("utf-8") == token.decode("utf-8"):
+            if symbol == token:
                 mapping[symbol] = i
 
     return mapping
