@@ -327,7 +327,6 @@ def main(args):
         scores = []
 
         for result in results:
-            # print(results)
             for shard in result:
                 for item in shard[0]:
                     outputs.append(item.tolist())
