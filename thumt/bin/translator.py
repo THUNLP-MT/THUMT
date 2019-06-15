@@ -200,7 +200,7 @@ def shard_features(features, placeholders, predictions):
                 break
 
     if isinstance(predictions, (list, tuple)):
-        predictions = [item[:n] for item in predictions]
+        predictions = predictions[:n]
 
     return predictions, feed_dict
 
@@ -327,6 +327,7 @@ def main(args):
         scores = []
 
         for result in results:
+            # print(results)
             for shard in result:
                 for item in shard[0]:
                     outputs.append(item.tolist())
