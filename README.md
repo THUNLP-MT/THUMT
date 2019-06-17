@@ -46,7 +46,7 @@ It is also possible to exploit layer-wise relevance propagation to visualize the
 
 - Transformer ([Vaswani et al., 2017](https://arxiv.org/abs/1706.03762))
 - Multi-GPU training & decoding
-- Distributed training.
+- Distributed training
 - Float16 training
 - Model ensemble & Averaging
 - Relative position embedding ([Shaw et al., 2018](https://arxiv.org/pdf/1803.02155.pdf))
