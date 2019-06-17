@@ -3,6 +3,7 @@
 * [Introduction](#introduction)
 * [Online Demo](#online-demo)
 * [Implementations](#implementations)
+* [Notable Features](#notable-features)
 * [License](#license)
 * [Citation](#citation)
 * [Development Team](#development-team)
@@ -40,6 +41,16 @@ We recommend using [THUMT-TensorFlow](https://github.com/thumt/THUMT), which del
 It is also possible to exploit layer-wise relevance propagation to visualize the relevance between source and target words with THUMT:
 
 ![Visualization with LRP](https://raw.githubusercontent.com/THUNLP-MT/THUMT/master/docs/fig/vis_transformer.png)
+
+## Notable Features
+
+- Transformer ([Vaswani et al., 2017](https://arxiv.org/abs/1706.03762))
+- Multi-GPU training & decoding
+- Distributed training.
+- Float16 training
+- Model ensemble & Averaging
+- Relative position embedding
+- Visualization with layer-wise relevance propagation (**LRP**) ([Ding et al., 2017](http://nlp.csai.tsinghua.edu.cn/~ly/papers/acl2017_dyz.pdf))
 
 ## License
 
