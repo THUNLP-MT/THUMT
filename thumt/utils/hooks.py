@@ -43,7 +43,7 @@ def _read_checkpoint_def(filename):
         fd.readline()
 
         for line in fd:
-            records.append(line.strip().split(":")[-1].strip()[1:-1])
+            records.append(line.strip().split(":")[-1].strip()[1:-1].split("/")[-1])
 
     return records
 
