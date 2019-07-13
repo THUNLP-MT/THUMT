@@ -15,6 +15,6 @@ def custom_getter(getter, name, shape=None, dtype=None, initializer=None,
                       regularizer=regularizer, trainable=trainable,
                       *args, **kwargs)
     if trainable and dtype != tf.float32:
-        variable = tf.dtypes.cast(variable, dtype)
+        variable = tf.cast(variable, dtype)
 
     return variable

@@ -10,6 +10,7 @@ import argparse
 import itertools
 import os
 import six
+import sys
 
 import numpy as np
 import tensorflow as tf
@@ -343,27 +344,34 @@ def main(args):
             restored_scores.append(scores[sorted_keys[index]])
 
         # Write to file
-        with open(args.output, "w") as outfile:
-            count = 0
-            for outputs, scores in zip(restored_outputs, restored_scores):
-                for output, score in zip(outputs, scores):
-                    decoded = []
-                    for idx in output:
-                        if idx == params.mapping["target"][params.eos]:
-                            break
-                        decoded.append(vocab[idx])
+        if sys.version_info.major == 2:
+            outfile = open(args.output, "w")
+        elif sys.version_info.major == 3:
+            outfile = open(args.output, "w", encoding="utf-8")
+        else:
+            raise ValueError("Unkown python running environment!")
 
-                    decoded = " ".join(decoded)
+        count = 0
+        for outputs, scores in zip(restored_outputs, restored_scores):
+            for output, score in zip(outputs, scores):
+                decoded = []
+                for idx in output:
+                    if idx == params.mapping["target"][params.eos]:
+                        break
+                    decoded.append(vocab[idx])
 
-                    if not args.verbose:
-                        outfile.write("%s\n" % decoded)
-                    else:
-                        pattern = "%d ||| %s ||| %s ||| %f\n"
-                        source = restored_inputs[count]
-                        values = (count, source, decoded, score)
-                        outfile.write(pattern % values)
+                decoded = " ".join(decoded)
 
-                count += 1
+                if not args.verbose:
+                    outfile.write("%s\n" % decoded)
+                else:
+                    pattern = "%d ||| %s ||| %s ||| %f\n"
+                    source = restored_inputs[count]
+                    values = (count, source, decoded, score)
+                    outfile.write(pattern % values)
+
+            count += 1
+        outfile.close()
 
 
 if __name__ == "__main__":

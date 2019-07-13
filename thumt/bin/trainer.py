@@ -272,6 +272,8 @@ def decode_target_ids(inputs, params):
                 sym = vocab[idx]
             else:
                 sym = idx
+                if not isinstance(sym, six.string_types):
+                    sym = sym.decode("utf-8")
 
             if sym == params.eos:
                 break

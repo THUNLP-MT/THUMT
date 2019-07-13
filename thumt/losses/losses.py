@@ -39,7 +39,8 @@ def smoothed_softmax_cross_entropy_with_logits(**kwargs):
 
         soft_targets = tf.one_hot(tf.cast(labels, tf.int32), depth=vocab_size,
                                   on_value=p, off_value=q)
-        xentropy = tf.nn.softmax_cross_entropy_with_logits(
+        soft_targets = tf.stop_gradient(soft_targets)
+        xentropy = tf.nn.softmax_cross_entropy_with_logits_v2(
             logits=tf.cast(logits, tf.float32),
             labels=soft_targets)
 

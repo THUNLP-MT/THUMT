@@ -168,7 +168,10 @@ def _evaluate(eval_fn, input_fn, decode_fn, path, config):
                     all_refs[i].extend(references[i])
 
         decoded_symbols = decode_fn(all_outputs)
-        for i, l in enumerate(decoded_symbols): decoded_symbols[i] = ' '.join(l).replace('@@ ', '').split()        
+
+        for i, l in enumerate(decoded_symbols):
+            decoded_symbols[i] = " ".join(l).replace("@@ ", "").split()
+
         decoded_refs = [decode_fn(refs) for refs in all_refs]
         decoded_refs = [list(x) for x in zip(*decoded_refs)]
 
