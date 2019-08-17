@@ -142,8 +142,7 @@ def _beam_search_step(time, func, state, batch_size, beam_size, alpha,
     # Select finished sequences
     prev_fin_flags, prev_fin_seqs, prev_fin_scores = state.finish
     # [batch, 2 * beam_size]
-    step_fin_scores = top_scores
-    step_fin_scores += (1.0 - flags.to(torch.float32)) * -1e9
+    step_fin_scores = top_scores + (1.0 - flags.to(torch.float32)) * -1e9
     # [batch, 3 * beam_size]
     fin_flags = torch.cat([prev_fin_flags, flags], dim=1)
     fin_scores = torch.cat([prev_fin_scores, step_fin_scores], dim=1)

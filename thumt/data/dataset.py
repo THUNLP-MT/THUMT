@@ -24,17 +24,15 @@ def build_input_fn(filenames, mode, params):
         dataset = dataset.map(
             lambda x, y: (tf.strings.split([x]).values,
                           tf.strings.split([y]).values),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE
-        )
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
         # Append BOS and EOS
         dataset = dataset.map(
             lambda x, y: (
                 (tf.concat([x, [tf.constant(params.eos)]], axis=0),
                  tf.concat([[tf.constant(params.bos)], y], axis=0)),
-                tf.concat([y, [tf.constant(params.eos)]], axis=0)
-            ),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE
-        )
+                tf.concat([y, [tf.constant(params.eos)]], axis=0)),
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
         def bucket_boundaries(max_length, min_length=8, step=8):
             x = min_length
@@ -73,11 +71,39 @@ def build_input_fn(filenames, mode, params):
             padding_values=(
                 (tf.constant(params.pad), tf.constant(params.pad)),
                 tf.constant(params.pad)),
-            pad_to_bucket_boundary=True
-        )
+            pad_to_bucket_boundary=True)
 
         dataset = dataset.filter(valid_size)
         dataset = dataset.apply(transformation_fn)
+
+        return dataset
+
+    def eval_input_fn():
+        src_dataset = tf.data.TextLineDataset(filenames[0])
+        tgt_dataset = tf.data.TextLineDataset(filenames[1])
+        dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
+
+        # Split string
+        dataset = dataset.map(
+            lambda x, y: (tf.strings.split([x]).values,
+                          tf.strings.split([y]).values),
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
+        # Append BOS and EOS
+        dataset = dataset.map(
+            lambda x, y: (
+                (tf.concat([x, [tf.constant(params.eos)]], axis=0),
+                 tf.concat([[tf.constant(params.bos)], y], axis=0)),
+                tf.concat([y, [tf.constant(params.eos)]], axis=0)),
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
+        # Batching
+        dataset = dataset.padded_batch(
+            params.batch_size,
+            padded_shapes=((tf.TensorShape([None]), tf.TensorShape([None])),
+                           tf.TensorShape([None])),
+            padding_values=((tf.constant(params.pad), tf.constant(params.pad)),
+                            tf.constant(params.pad)))
 
         return dataset
 
@@ -86,22 +112,21 @@ def build_input_fn(filenames, mode, params):
 
         dataset = dataset.map(
             lambda x: tf.strings.split([x]).values,
-            num_parallel_calls=tf.data.experimental.AUTOTUNE
-        )
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
         dataset = dataset.map(
             lambda x: tf.concat([x, [tf.constant(params.eos)]], axis=0),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE
-        )
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
         dataset = dataset.padded_batch(
             params.decode_batch_size,
             padded_shapes=tf.TensorShape([None]),
-            padding_values=tf.constant(params.pad),
-        )
+            padding_values=tf.constant(params.pad))
 
         return dataset
 
     if mode == "train":
         return train_input_fn
+    if mode == "eval":
+        return eval_input_fn
     elif mode == "infer":
         return infer_input_fn
     else:

@@ -7,6 +7,7 @@ from __future__ import division
 from __future__ import print_function
 
 import json
+import logging
 import re
 import six
 
@@ -102,6 +103,7 @@ class HParams(object):
     def _set_from_map(self, values_map):
         for name, value in six.iteritems(values_map):
             if name not in self._hparam_types:
+                logging.debug("%s not found in hparams." % name)
                 continue
 
             _, is_list = self._hparam_types[name]

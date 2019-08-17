@@ -11,62 +11,69 @@ import torch.nn as nn
 
 class MultiHeadAttention(nn.Module):
 
-    def __init__(self, hidden_size, num_heads, rate=0.0):
+    def __init__(self, hidden_size, num_heads, dropout=0.0):
         super(MultiHeadAttention, self).__init__()
+
+        self.num_heads = num_heads
+        self.hidden_size = hidden_size
+
         self.q_transform = nn.Linear(hidden_size, hidden_size)
         self.k_transform = nn.Linear(hidden_size, hidden_size)
         self.v_transform = nn.Linear(hidden_size, hidden_size)
         self.o_transform = nn.Linear(hidden_size, hidden_size)
+        self.dropout = nn.Dropout(dropout)
 
-        self.init_parameters()
-        self.num_heads = num_heads
-        self.hidden_size = hidden_size
-        self.dropout_rate = rate
+        self.reset_parameters()
 
-    def forward(self, query, bias, memory=None, state=None):
+    def forward(self, query, bias, memory=None, kv=None):
         q = self.q_transform(query)
 
         if memory is not None:
+            if kv is not None:
+                k, v = kv
+            else:
+                k, v = None, None
+
             # encoder-decoder attention
-            k = self.k_transform(memory)
-            v = self.v_transform(memory)
+            k = k or self.k_transform(memory)
+            v = v or self.v_transform(memory)
         else:
             # self-attention
             k = self.k_transform(query)
             v = self.v_transform(query)
 
-            if state is not None:
-                k = state["k"] = torch.cat([state["k"], k], dim=1)
-                v = state["v"] = torch.cat([state["v"], v], dim=1)
+            if kv is not None:
+                k = torch.cat([kv[0], k], dim=1)
+                v = torch.cat([kv[1], v], dim=1)
 
         # split heads
-        q = self.split_heads(q, self.num_heads)
-        k = self.split_heads(k, self.num_heads)
-        v = self.split_heads(v, self.num_heads)
+        qh = self.split_heads(q, self.num_heads)
+        kh = self.split_heads(k, self.num_heads)
+        vh = self.split_heads(v, self.num_heads)
 
         # scale query
-        q *= (self.hidden_size // self.num_heads) ** -0.5
+        qh = qh * (self.hidden_size // self.num_heads) ** -0.5
 
         # dot-product attention
-        k = torch.transpose(k, -2, -1)
-        logits = torch.matmul(q, k)
+        kh = torch.transpose(kh, -2, -1)
+        logits = torch.matmul(qh, kh)
 
         if bias is not None:
-            logits += bias
+            logits = logits + bias
 
-        weights = torch.softmax(logits, dim=-1)
+        weights = self.dropout(torch.softmax(logits, dim=-1))
 
-        if self.dropout_rate > 0.0:
-            weights = torch.dropout(weights, p=self.dropout_rate, train=True)
-
-        x = torch.matmul(weights, v)
+        x = torch.matmul(weights, vh)
 
         # combine heads
         output = self.o_transform(self.combine_heads(x))
 
+        if kv is not None:
+            return output, k, v
+
         return output
 
-    def init_parameters(self):
+    def reset_parameters(self):
         nn.init.xavier_uniform_(self.q_transform.weight)
         nn.init.xavier_uniform_(self.k_transform.weight)
         nn.init.xavier_uniform_(self.v_transform.weight)

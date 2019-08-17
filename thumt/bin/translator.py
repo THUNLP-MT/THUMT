@@ -6,14 +6,14 @@ from __future__ import division
 from __future__ import print_function
 
 import argparse
+import glob
 import itertools
 import logging
-import glob
 import os
 import six
-
 import time
 import torch
+
 import numpy as np
 import thumt.data as data
 import thumt.models as models
@@ -41,8 +41,6 @@ def parse_args():
                         help="Name of the model")
     parser.add_argument("--parameters", type=str, default="",
                         help="Additional hyper parameters")
-    parser.add_argument("--verbose", action="store_true",
-                        help="Enable verbose output")
 
     return parser.parse_args()
 
@@ -137,12 +135,6 @@ def convert_to_string(tensor, params):
     return decoded
 
 
-def get_checkpoint(path):
-    names = glob.glob(path + "/*.pt")
-    print("Restroing parameters from %s." % names[0])
-    return names[0]
-
-
 def main(args):
     # Load configs
     model_cls = models.get_model(args.model)
@@ -155,8 +147,9 @@ def main(args):
     # Create model
     with torch.no_grad():
         model = model_cls(params).cuda()
-        model.infer()
-        model.load_state_dict(torch.load(get_checkpoint(args.checkpoint)))
+        model.eval()
+        model.load_state_dict(
+            torch.load(utils.latest_checkpoint(args.checkpoint)))
 
         # Decoding
         dataset = data.get_dataset(args.input, "infer", params)

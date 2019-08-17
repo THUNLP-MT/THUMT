@@ -6,18 +6,19 @@ from __future__ import division
 from __future__ import print_function
 
 import argparse
+import glob
+import itertools
 import logging
 import os
 import six
 import time
 import torch
-import torch.distributed as distributed
-from torch.multiprocessing import Process
 
+import torch.distributed as dist
 import thumt.data as data
 import thumt.utils as utils
-import thumt.losses as losses
 import thumt.models as models
+import thumt.modules as modules
 import thumt.optimizers as optimizers
 
 
@@ -56,7 +57,6 @@ def default_params():
     params = utils.HParams(
         input=["", ""],
         output="",
-        record="",
         model="transformer",
         vocab=["", ""],
         pad="<pad>",
@@ -64,22 +64,24 @@ def default_params():
         eos="<eos>",
         unk="<unk>",
         # Dataset
-        epochs=5,
+        epochs=10,
         batch_size=4096,
         batch_multiplier=1,
         fixed_batch_size=False,
         min_length=1,
         max_length=256,
         buffer_size=10000,
-        # Training
-        warmup_steps=4000,
-        train_steps=100000,
-        device_list=[0],
-        update_cycle=1,
-        initializer="uniform_unit_scaling",
+        # Initialization
         initializer_gain=1.0,
+        initializer="uniform_unit_scaling",
+        # Regularization
         scale_l1=0.0,
         scale_l2=0.0,
+        # Training
+        device_list=[0],
+        warmup_steps=4000,
+        train_steps=100000,
+        update_cycle=1,
         optimizer="Adam",
         adam_beta1=0.9,
         adam_beta2=0.999,
@@ -89,6 +91,7 @@ def default_params():
         learning_rate_schedule="linear_warmup_rsqrt_decay",
         learning_rate_boundaries=[0],
         learning_rate_values=[0.0],
+        # Checkpoint Saving
         keep_checkpoint_max=20,
         keep_top_checkpoint_max=5,
         save_checkpoint_secs=0,
@@ -162,7 +165,6 @@ def override_params(params, args):
     params.model = args.model or params.model
     params.input = args.input or params.input
     params.output = args.output or params.output
-    params.record = args.record or params.record
     params.vocab = args.vocabulary or params.vocab
     params.validation = args.validation or params.validation
     params.references = args.references or params.references
@@ -205,21 +207,35 @@ def print_variables(model):
     print("Total trainable variables size: %d" % total_size)
 
 
+def save_checkpoint(step, epoch, model, optimizer, params):
+    name = params.output + "/model-%d.pt" % (step + 1)
+    step = torch.tensor(step, dtype=torch.int64).cuda()
+    epoch = torch.tensor(epoch, dtype=torch.int64).cuda()
+    torch.save([step, epoch, model.state_dict()], name)
+
+
+def broadcast(step, epoch, model, optimizer):
+    dist.broadcast(step, 0)
+    dist.broadcast(epoch, 0)
+
+    for var in model.parameters():
+        dist.broadcast(var.data, 0)
+
+
 def main(params):
     # Set device
-    torch.cuda.set_device(params.device_list[distributed.get_rank()])
+    torch.cuda.set_device(params.device_list[dist.get_rank()])
     model_cls = models.get_model(params.model)
-    model = model_cls(params).cuda()
 
     # Export parameters
-    if distributed.get_rank() == 0:
+    if dist.get_rank() == 0:
         export_params(params.output, "params.json", params)
         export_params(params.output, "%s.json" % params.model,
                       collect_params(params, model_cls.default_params()))
 
-    if distributed.get_rank() == 0:
-        print_variables(model)
-
+    model = model_cls(params).cuda()
+    model.train()
+    criterion = modules.SmoothedCrossEntropyLoss(params.label_smoothing)
     schedule = optimizers.LinearWarmupRsqrtDecay(params.learning_rate,
                                                  params.warmup_steps)
     optimizer = optimizers.AdamOptimizer(learning_rate=schedule,
@@ -227,18 +243,33 @@ def main(params):
                                          beta_2=params.adam_beta2,
                                          epsilon=params.adam_epsilon)
 
-    step = 0
+    if dist.get_rank() == 0:
+        print_variables(model)
+
+    step = torch.tensor(0, dtype=torch.int64).cuda()
+    epoch = torch.tensor(0, dtype=torch.int64).cuda()
     dataset = data.get_dataset(params.input, "train", params)
+    checkpoint = utils.latest_checkpoint(params.output)
+
+    if dist.get_rank() == 0 and checkpoint:
+        states = torch.load(checkpoint)
+        step, epoch, state_dict = states
+        model.load_state_dict(state_dict)
+
+    broadcast(step, epoch, model, optimizer)
+
+    # Convert to Python int
+    step = int(step)
+    epoch = int(epoch)
 
     def train_fn(features):
         labels = features["labels"]
         mask = torch.ne(labels, 0).to(torch.float32)
         logits = model(features)
-        loss = losses.smoothed_softmax_cross_entropy_with_logits(
-            logits=logits, labels=labels, smoothing=params.label_smoothing)
-        return torch.mean(loss * mask)
+        loss = criterion(logits, labels)
+        return torch.sum(loss * mask) / torch.sum(mask)
 
-    for i in range(params.epochs):
+    for i in range(epoch, params.epochs):
         for features in dataset:
             step += 1
             t = time.time()
@@ -253,20 +284,20 @@ def main(params):
             print("epoch = %d, step = %d, loss = %.3f (%.3f sec)" %
                   (i + 1, step, float(loss), t))
 
-            if step % params.save_checkpoint_steps == 0:
-                if distributed.get_rank() == 0:
-                    name = "/model-%d.pt" % step
-                    torch.save(model.state_dict(), params.output + name)
+            if dist.get_rank() != 0:
+                continue
 
-        if distributed.get_rank() == 0:
-            name = params.output + "/model-iter-%d.pt" % (i + 1)
-            torch.save(model.state_dict(), name)
+            if step % params.save_checkpoint_steps == 0:
+                save_checkpoint(step, i, model, optimizer, params)
+
+        if dist.get_rank() == 0:
+            save_checkpoint(step, i, model, optimizer, params)
 
 
 def init_processes(rank, size, params, fn):
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = "29500"
-    distributed.init_process_group("nccl", rank=rank, world_size=size)
+    dist.init_process_group("nccl", rank=rank, world_size=size)
     fn(params)
 
 
