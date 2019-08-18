@@ -77,5 +77,6 @@ If you have questions, suggestions and bug reports, please email [thumt17@gmail.
 
 ## Derivative Repositories
 * [UCE4BT](https://github.com/THUNLP-MT/UCE4BT) (Improving Back-Translation with Uncertainty-based Confidence Estimation)
+* [L2Copy4APE](https://github.com/THUNLP-MT/L2Copy4APE) (Learning to Copy for Automatic Post-Editing)
 * [Document-Transformer](https://github.com/THUNLP-MT/Document-Transformer) (Improving the Transformer Translation Model with Document-Level Context)
 * [PR4NMT](https://github.com/THUNLP-MT/PR4NMT) (Prior Knowledge Integration for Neural Machine Translation using Posterior Regularization)
