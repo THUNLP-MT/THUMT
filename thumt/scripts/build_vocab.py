@@ -10,6 +10,20 @@ import argparse
 import collections
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Create vocabulary")
+
+    parser.add_argument("corpus", help="input corpus")
+    parser.add_argument("output", default="vocab.txt",
+                        help="Output vocabulary name")
+    parser.add_argument("--limit", default=0, type=int, help="Vocabulary size")
+    parser.add_argument("--control", type=str, default="<pad>,<eos>,<unk>",
+                        help="Add control symbols to vocabulary. "
+                             "Control symbols are separated by comma.")
+
+    return parser.parse_args()
+
+
 def count_words(filename):
     counter = collections.Counter()
 
@@ -43,20 +57,6 @@ def save_vocab(name, vocab):
         for word in words:
             f.write(word)
             f.write("\n".encode("ascii"))
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Create vocabulary")
-
-    parser.add_argument("corpus", help="input corpus")
-    parser.add_argument("output", default="vocab.txt",
-                        help="Output vocabulary name")
-    parser.add_argument("--limit", default=0, type=int, help="Vocabulary size")
-    parser.add_argument("--control", type=str, default="<pad>,<eos>,<unk>",
-                        help="Add control symbols to vocabulary. "
-                             "Control symbols are separated by comma.")
-
-    return parser.parse_args()
 
 
 def main(args):

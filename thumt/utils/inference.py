@@ -31,17 +31,6 @@ def _tile_to_beam_size(tensor, beam_size):
     return tensor.repeat(tile_dims)
 
 
-def _tile_batch(tensor, batch_size):
-    shape = list(tensor.shape)
-    tile_dims = [1] * (len(shape) + 1)
-    tile_dims[1] = batch_size
-
-    tensor = tf.unsqueeze(tensor, 1).repeat(tile_dims)
-    shape[0] = shape[0] * batch_size
-
-    return torch.reshape(tensor, shape)
-
-
 def _gather_2d(params, indices, name=None):
     batch_size = params.shape[0]
     range_size = indices.shape[1]

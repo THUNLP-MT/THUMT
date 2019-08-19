@@ -17,6 +17,7 @@ import torch
 import torch.distributed as dist
 import thumt.data as data
 import thumt.utils as utils
+import thumt.train as train
 import thumt.models as models
 import thumt.modules as modules
 import thumt.optimizers as optimizers
@@ -64,7 +65,6 @@ def default_params():
         eos="<eos>",
         unk="<unk>",
         # Dataset
-        epochs=10,
         batch_size=4096,
         batch_multiplier=1,
         fixed_batch_size=False,
@@ -208,16 +208,12 @@ def print_variables(model):
 
 
 def save_checkpoint(step, epoch, model, optimizer, params):
-    name = params.output + "/model-%d.pt" % (step + 1)
-    step = torch.tensor(step, dtype=torch.int64).cuda()
-    epoch = torch.tensor(epoch, dtype=torch.int64).cuda()
-    torch.save([step, epoch, model.state_dict()], name)
+    if dist.get_rank() == 0:
+        state = {"step": step, "epoch": epoch, "model": model.state_dict()}
+        train.save(state, params.output, params.keep_checkpoint_max)
 
 
-def broadcast(step, epoch, model, optimizer):
-    dist.broadcast(step, 0)
-    dist.broadcast(epoch, 0)
-
+def broadcast(model, optimizer):
     for var in model.parameters():
         dist.broadcast(var.data, 0)
 
@@ -242,25 +238,25 @@ def main(params):
                                          beta_1=params.adam_beta1,
                                          beta_2=params.adam_beta2,
                                          epsilon=params.adam_epsilon)
+    optimizer = optimizers.MultiStepOptimizer(optimizer, params.update_cycle)
 
     if dist.get_rank() == 0:
         print_variables(model)
 
-    step = torch.tensor(0, dtype=torch.int64).cuda()
-    epoch = torch.tensor(0, dtype=torch.int64).cuda()
     dataset = data.get_dataset(params.input, "train", params)
-    checkpoint = utils.latest_checkpoint(params.output)
 
-    if dist.get_rank() == 0 and checkpoint:
-        states = torch.load(checkpoint)
-        step, epoch, state_dict = states
-        model.load_state_dict(state_dict)
+    # Load checkpoint
+    checkpoint = train.latest_checkpoint(params.output)
 
-    broadcast(step, epoch, model, optimizer)
-
-    # Convert to Python int
-    step = int(step)
-    epoch = int(epoch)
+    if checkpoint is not None:
+        state = torch.load(checkpoint)
+        step = state["step"]
+        epoch = state["epoch"]
+        model.load_state_dict(state["model"])
+    else:
+        step = 0
+        epoch = 0
+        broadcast(model, optimizer)
 
     def train_fn(features):
         labels = features["labels"]
@@ -269,7 +265,7 @@ def main(params):
         loss = criterion(logits, labels)
         return torch.sum(loss * mask) / torch.sum(mask)
 
-    for i in range(epoch, params.epochs):
+    while True:
         for features in dataset:
             step += 1
             t = time.time()
@@ -282,16 +278,17 @@ def main(params):
 
             t = time.time() - t
             print("epoch = %d, step = %d, loss = %.3f (%.3f sec)" %
-                  (i + 1, step, float(loss), t))
-
-            if dist.get_rank() != 0:
-                continue
+                  (epoch + 1, step, float(loss), t))
 
             if step % params.save_checkpoint_steps == 0:
-                save_checkpoint(step, i, model, optimizer, params)
+                save_checkpoint(step, epoch, model, optimizer, params)
 
-        if dist.get_rank() == 0:
-            save_checkpoint(step, i, model, optimizer, params)
+            if step >= params.train_steps:
+                if step % params.save_checkpoint_steps != 0:
+                    save_checkpoint(step, epoch, model, optimizer, params)
+                return
+
+        epoch += 1
 
 
 def init_processes(rank, size, params, fn):
