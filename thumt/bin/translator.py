@@ -17,7 +17,6 @@ import torch
 import numpy as np
 import thumt.data as data
 import thumt.models as models
-import thumt.train as train
 import thumt.utils as utils
 
 
@@ -150,7 +149,7 @@ def main(args):
         model = model_cls(params).cuda()
         model.eval()
         model.load_state_dict(
-            torch.load(train.latest_checkpoint(args.checkpoint))["model"])
+            torch.load(utils.latest_checkpoint(args.checkpoint))["model"])
 
         # Decoding
         dataset = data.get_dataset(args.input, "infer", params)

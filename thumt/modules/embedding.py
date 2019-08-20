@@ -36,4 +36,4 @@ class PositionalEmbedding(torch.nn.Module):
                               device=inputs.device)
             signal = torch.cat([signal, pad], axis=1)
 
-        return inputs + torch.reshape(signal, [1, -1, channels])
+        return inputs + torch.reshape(signal, [1, -1, channels]).to(inputs)

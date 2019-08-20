@@ -161,6 +161,7 @@ class Transformer(nn.Module):
         inputs = inputs + self.bias
         inputs = self.dropout(self.encoding(inputs))
 
+        enc_attn_bias = enc_attn_bias.to(inputs)
         encoder_output = self.encoder(inputs, enc_attn_bias)
 
         state["encoder_output"] = encoder_output
@@ -183,7 +184,7 @@ class Transformer(nn.Module):
         decoder_input = self.dropout(self.encoding(decoder_input))
 
         encoder_output = state["encoder_output"]
-        dec_attn_bias = dec_attn_bias.to(targets.device)
+        dec_attn_bias = dec_attn_bias.to(targets)
 
         if mode == "infer":
             decoder_input = decoder_input[:, -1:, :]
@@ -252,6 +253,7 @@ class Transformer(nn.Module):
             shared_embedding_and_softmax_weights=False,
             shared_source_target_embedding=False,
             # Override default parameters
+            train_steps=100000,
             learning_rate=7e-4,
             learning_rate_schedule="linear_warmup_rsqrt_decay",
             batch_size=4096,
@@ -259,39 +261,20 @@ class Transformer(nn.Module):
             adam_beta1=0.9,
             adam_beta2=0.98,
             adam_epsilon=1e-9,
-            clip_grad_norm=0.0,
+            clip_grad_norm=0.0
         )
 
         return params
 
     @staticmethod
     def big_params():
-        params = utils.HParams(
-            pad="<pad>",
-            bos="<eos>",
-            eos="<eos>",
-            unk="<unk>",
-            hidden_size=1024,
-            filter_size=4096,
-            num_heads=16,
-            num_encoder_layers=6,
-            num_decoder_layers=6,
-            attention_dropout=0.0,
-            residual_dropout=0.3,
-            relu_dropout=0.0,
-            label_smoothing=0.1,
-            shared_embedding_and_softmax_weights=False,
-            shared_source_target_embedding=False,
-            # Override default parameters
-            learning_rate=5e-4,
-            learning_rate_schedule="linear_warmup_rsqrt_decay",
-            batch_size=4096,
-            fixed_batch_size=False,
-            adam_beta1=0.9,
-            adam_beta2=0.98,
-            adam_epsilon=1e-9,
-            clip_grad_norm=0.0,
-        )
+        params = Transformer.base_params()
+        params.hidden_size = 1024
+        params.filter_size = 4096
+        params.num_heads = 16
+        params.residual_dropout = 0.3
+        params.learning_rate = 5e-4
+        params.train_steps = 300000
 
         return params
 

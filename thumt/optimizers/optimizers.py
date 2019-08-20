@@ -114,6 +114,9 @@ class MultiStepOptimizer(Optimizer):
         return self._optimizer.compute_gradients(loss, var_list)
 
     def apply_gradients(self, grads_and_vars):
+        if self._n == 1:
+            return self._optimizer.apply_gradients(grads_and_vars)
+
         self._iterations += 1
 
         if self._iterations % self._n == 0:
@@ -170,7 +173,7 @@ class LossScalingOptimizer(Optimizer):
 
                 if not torch.isfinite(norm):
                     self._skip_update = True
-                    self._update_if_finite_grads()
+                    self._update_if_not_finite_grads()
                     break
 
             self._update_if_finite_grads()
@@ -181,10 +184,11 @@ class LossScalingOptimizer(Optimizer):
         if self._skip_update:
             return
         else:
-            grads = []
-            var_list = []
+            grads, var_list = list(zip(*grads_and_vars))
+            new_grads = []
+            new_var_list = []
 
-            for grad, var in grads_and_vars:
+            for grad, var in zip(grads, var_list):
                 if grad is None:
                     continue
 
@@ -193,10 +197,18 @@ class LossScalingOptimizer(Optimizer):
                                                         dtype=torch.float32)
 
                 v = self._slots[var]
-                v.copy_(grad.data)
 
-                grads.append(v)
-                var_list.append(var)
+                # Convert gradients to FP32 and rescale
+                new_grads.append(grad.to(torch.float32) / self._scale)
+                new_var_list.append(v)
 
-            self._optimizer.apply_gradients(self, zip(grads, var_list))
+            self._optimizer.apply_gradients(zip(new_grads, new_var_list))
+
+            for var, val in zip(var_list, new_var_list):
+                if var is not None:
+                    var.data.add_(val.to(var))
+
+                val.data.zero_()
+
+
 

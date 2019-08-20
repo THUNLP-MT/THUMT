@@ -6,18 +6,19 @@ from __future__ import division
 from __future__ import print_function
 
 import argparse
+import copy
 import glob
 import itertools
 import logging
 import os
 import six
+import socket
 import time
 import torch
 
 import torch.distributed as dist
 import thumt.data as data
 import thumt.utils as utils
-import thumt.train as train
 import thumt.models as models
 import thumt.modules as modules
 import thumt.optimizers as optimizers
@@ -44,6 +45,14 @@ def parse_args(args=None):
                         help="Path of reference files")
     parser.add_argument("--checkpoint", type=str,
                         help="Path to pre-trained checkpoint")
+    parser.add_argument("--distributed", action="store_true",
+                        help="Enable distributed training mode")
+    parser.add_argument("--local_rank", type=int,
+                        help="Local rank of this process")
+    parser.add_argument("--half", action="store_true",
+                        help="Enable mixed precision training")
+    parser.add_argument("--hparam_set", type=str,
+                        help="Name of pre-defined hyper parameter set")
 
     # model and configuration
     parser.add_argument("--model", type=str, required=True,
@@ -78,7 +87,6 @@ def default_params():
         scale_l1=0.0,
         scale_l2=0.0,
         # Training
-        device_list=[0],
         warmup_steps=4000,
         train_steps=100000,
         update_cycle=1,
@@ -91,6 +99,7 @@ def default_params():
         learning_rate_schedule="linear_warmup_rsqrt_decay",
         learning_rate_boundaries=[0],
         learning_rate_values=[0.0],
+        device_list=[0],
         # Checkpoint Saving
         keep_checkpoint_max=20,
         keep_top_checkpoint_max=5,
@@ -210,7 +219,19 @@ def print_variables(model):
 def save_checkpoint(step, epoch, model, optimizer, params):
     if dist.get_rank() == 0:
         state = {"step": step, "epoch": epoch, "model": model.state_dict()}
-        train.save(state, params.output, params.keep_checkpoint_max)
+        utils.save(state, params.output, params.keep_checkpoint_max)
+
+
+def infer_gpu_num(s):
+    kv_list = s.split(",")
+    kv_list = [kv.split("=") for kv in kv_list]
+    kv_dict = {item[0]: item[1] for item in kv_list}
+
+    if "device_list" not in kv_dict:
+        return 1
+    else:
+        dev_str = kv_dict["device_list"].lstrip("[").rstrip("]")
+        return len(dev_str.split(","))
 
 
 def broadcast(model, optimizer):
@@ -218,10 +239,26 @@ def broadcast(model, optimizer):
         dist.broadcast(var.data, 0)
 
 
-def main(params):
-    # Set device
-    torch.cuda.set_device(params.device_list[dist.get_rank()])
-    model_cls = models.get_model(params.model)
+def main(args):
+    model_cls = models.get_model(args.model)
+
+    # Import and override parameters
+    # Priorities (low -> high):
+    # default -> saved -> command
+    params = default_params()
+    params = merge_params(params, model_cls.default_params(args.hparam_set))
+    params = import_params(args.output, args.model, params)
+    params = override_params(params, args)
+
+    # Initialize distributed utility
+    if args.distributed:
+        dist.init_process_group("nccl")
+        torch.cuda.set_device(args.local_rank)
+    else:
+        dist.init_process_group("nccl", init_method=args.url,
+                                rank=args.local_rank,
+                                world_size=len(params.device_list))
+        torch.cuda.set_device(params.device_list[args.local_rank])
 
     # Export parameters
     if dist.get_rank() == 0:
@@ -230,6 +267,10 @@ def main(params):
                       collect_params(params, model_cls.default_params()))
 
     model = model_cls(params).cuda()
+
+    if args.half:
+        model = model.half()
+
     model.train()
     criterion = modules.SmoothedCrossEntropyLoss(params.label_smoothing)
     schedule = optimizers.LinearWarmupRsqrtDecay(params.learning_rate,
@@ -240,13 +281,16 @@ def main(params):
                                          epsilon=params.adam_epsilon)
     optimizer = optimizers.MultiStepOptimizer(optimizer, params.update_cycle)
 
+    if args.half:
+        optimizer = optimizers.LossScalingOptimizer(optimizer)
+
     if dist.get_rank() == 0:
         print_variables(model)
 
     dataset = data.get_dataset(params.input, "train", params)
 
     # Load checkpoint
-    checkpoint = train.latest_checkpoint(params.output)
+    checkpoint = utils.latest_checkpoint(params.output)
 
     if checkpoint is not None:
         state = torch.load(checkpoint)
@@ -260,14 +304,21 @@ def main(params):
 
     def train_fn(features):
         labels = features["labels"]
-        mask = torch.ne(labels, 0).to(torch.float32)
         logits = model(features)
         loss = criterion(logits, labels)
+        mask = torch.ne(labels, 0).to(loss)
         return torch.sum(loss * mask) / torch.sum(mask)
+
+    counter = 0
+    should_save = False
 
     while True:
         for features in dataset:
-            step += 1
+            if counter % params.update_cycle == 0:
+                step += 1
+                should_save = True
+
+            counter += 1
             t = time.time()
             features = data.lookup(features, "train", params)
             loss = train_fn(features)
@@ -277,41 +328,43 @@ def main(params):
                                           list(model.parameters())))
 
             t = time.time() - t
+
             print("epoch = %d, step = %d, loss = %.3f (%.3f sec)" %
                   (epoch + 1, step, float(loss), t))
 
             if step % params.save_checkpoint_steps == 0:
-                save_checkpoint(step, epoch, model, optimizer, params)
+                if should_save:
+                    save_checkpoint(step, epoch, model, optimizer, params)
+                    should_save = False
 
             if step >= params.train_steps:
-                if step % params.save_checkpoint_steps != 0:
+                if should_save:
                     save_checkpoint(step, epoch, model, optimizer, params)
                 return
 
         epoch += 1
 
 
-def init_processes(rank, size, params, fn):
-    os.environ["MASTER_ADDR"] = "127.0.0.1"
-    os.environ["MASTER_PORT"] = "29500"
-    dist.init_process_group("nccl", rank=rank, world_size=size)
-    fn(params)
+# Wrap main function
+def process_fn(rank, args):
+    local_args = copy.copy(args)
+    local_args.local_rank = rank
+    main(local_args)
 
 
 if __name__ == "__main__":
-    args = parse_args()
-    model_cls = models.get_model(args.model)
+    parsed_args = parse_args()
 
-    # Import and override parameters
-    # Priorities (low -> high):
-    # default -> saved -> command
-    params = default_params()
-    params = merge_params(params, model_cls.default_params())
-    params = import_params(args.output, args.model, params)
-    params = override_params(params, args)
+    if parsed_args.distributed:
+        main(parsed_args)
+    else:
+        # Pick a free port
+        with socket.socket() as s:
+            s.bind(("localhost", 0))
+            port = s.getsockname()[1]
+            url = "tcp://localhost:" + str(port)
+            parsed_args.url = url
 
-    size = len(params.device_list)
-
-    torch.multiprocessing.spawn(init_processes,
-                                args=(size, params, main),
-                                nprocs=size)
+        world_size = infer_gpu_num(parsed_args.parameters)
+        torch.multiprocessing.spawn(process_fn, args=(parsed_args,),
+                                    nprocs=world_size)

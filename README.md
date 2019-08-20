@@ -13,7 +13,7 @@ This is the experimental PyTorch implementation of THUMT.
 * Architecture: Transformer
 * Gradient aggregation: Experimental
 * Multi-GPU training: Yes
-* Distributed training: No
-* Mixed precision training: No
+* Distributed training: Experimental
+* Mixed precision training: Experimental
 * Model validation: No
 * Multi-GPU decoding: No

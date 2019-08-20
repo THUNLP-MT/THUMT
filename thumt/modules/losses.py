@@ -31,8 +31,15 @@ class SmoothedCrossEntropyLoss(torch.nn.Module):
         p = 1.0 - self.smoothing
         q = self.smoothing / n
 
-        sum_probs = torch.sum(log_probs, dim=-1)
-        loss = p * loss + q * (sum_probs - loss)
+        if log_probs.dtype != torch.float16:
+            sum_probs = torch.sum(log_probs, dim=-1)
+            loss = p * loss + q * (sum_probs - loss)
+        else:
+            sum_probs = torch.sum(log_probs.to(torch.float32), dim=-1)
+            loss = loss.to(torch.float32)
+            loss = p * loss + q * (sum_probs - loss)
+            loss = loss.to(torch.float16)
+
         loss = -torch.reshape(loss, shape)
 
         if self.normalize:
