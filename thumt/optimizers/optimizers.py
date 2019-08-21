@@ -18,23 +18,44 @@ class Optimizer(object):
         self._name = name
         self._hyper = {}
         self._slots = {}
-        self._weights = None
         self._iterations = 0
 
-    def _zero_gradients(self, var_list):
-        for v in var_list:
-            if v is not None and v.grad is not None:
-                v.grad.detach_()
-                v.grad.zero_()
-
-    def _reduce_gradients(self, gradients):
+    def detach_gradients(self, gradients):
         for grad in gradients:
-            dist.all_reduce(grad.data, op=dist.reduce_op.SUM)
-            grad.data /= dist.get_world_size()
+            if grad is not None:
+                grad.detach_()
 
-    def compute_gradients(self, loss, var_list):
+    def scale_gradients(self, gradients, scale):
+        for grad in gradients:
+            if grad is not None:
+                grad.mul_(scale)
+
+    def sync_gradients(self, gradients, compress=True):
+        for grad in gradients:
+            if grad is None:
+                continue
+
+            if compress and grad.dtype != torch.float16:
+                grad_fp16 = grad.half()
+                dist.all_reduce(grad_fp16)
+                grad.copy_(grad_fp16)
+            else:
+                dist.all_reduce(grad)
+
+    def zero_gradients(self, gradients):
+        for grad in gradients:
+            if grad is not None:
+                grad.zero_()
+
+    def compute_gradients(self, loss, var_list, aggregate=False):
         var_list = list(var_list)
-        self._zero_gradients(var_list)
+        grads = [v.grad if v is not None else None for v in var_list]
+
+        self.detach_gradients(grads)
+
+        if not aggregate:
+            self.zero_gradients(grads)
+
         loss.backward()
         return [v.grad if v is not None else None for v in var_list]
 
@@ -44,10 +65,6 @@ class Optimizer(object):
     @property
     def iterations(self):
         return self._iterations
-
-    @property
-    def weights(self):
-        return self._weights
 
     def state_dict(self):
         raise NotImplementedError("Not implemented")
@@ -77,14 +94,15 @@ class AdamOptimizer(Optimizer):
             if grad is None:
                 continue
 
-            if dist.get_world_size() > 1:
-                dist.all_reduce(grad.data, op=dist.reduce_op.SUM)
-                grad.data /= dist.get_world_size()
+            # Convert if grad is not FP32
+            grad = grad.data.float()
 
             if self._slots.get(var, None) is None:
                 self._slots[var] = {}
-                self._slots[var]["m"] = torch.zeros_like(var.data)
-                self._slots[var]["v"] = torch.zeros_like(var.data)
+                self._slots[var]["m"] = torch.zeros_like(var.data,
+                                                         dtype=torch.float32)
+                self._slots[var]["v"] = torch.zeros_like(var.data,
+                                                         dtype=torch.float32)
 
             m, v = self._slots[var]["m"], self._slots[var]["v"]
 
@@ -99,39 +117,18 @@ class AdamOptimizer(Optimizer):
                 lr = lr(self._iterations)
 
             step_size = lr / bias_corr_1
-            var.data.addcdiv_(-step_size, m, denom)
 
-
-class MultiStepOptimizer(Optimizer):
-
-    def __init__(self, optimizer, n=1, name="MultiStepOptimizer", **kwargs):
-        super(MultiStepOptimizer, self).__init__(name, **kwargs)
-        self._n = n
-        self._iterations = 0
-        self._optimizer = optimizer
-
-    def compute_gradients(self, loss, var_list):
-        return self._optimizer.compute_gradients(loss, var_list)
-
-    def apply_gradients(self, grads_and_vars):
-        if self._n == 1:
-            return self._optimizer.apply_gradients(grads_and_vars)
-
-        self._iterations += 1
-
-        if self._iterations % self._n == 0:
-            grads, var_list = list(zip(*grads_and_vars))
-
-            # Average gradient
-            for grad in grads:
-                grad.data.div_(self._n)
-
-            self._optimizer.apply_gradients(zip(grads, var_list))
+            if var.dtype == torch.float32:
+                var.data.addcdiv_(-step_size, m, denom)
+            else:
+                fp32_var = var.data.float()
+                fp32_var.addcdiv_(-step_size, m, denom)
+                var.data.copy_(fp32_var)
 
 
 class LossScalingOptimizer(Optimizer):
 
-    def __init__(self, optimizer, scale=2.0**15, increment_period=2000,
+    def __init__(self, optimizer, scale=2.0**7, increment_period=2000,
                  multiplier=2.0, name="LossScalingOptimizer", **kwargs):
         super(LossScalingOptimizer, self).__init__(name, **kwargs)
         self._optimizer = optimizer
@@ -151,64 +148,75 @@ class LossScalingOptimizer(Optimizer):
     def _update_if_not_finite_grads(self):
         self._scale = max(self._scale / self._multiplier, 1)
 
-    def compute_gradients(self, loss, var_list):
+    def compute_gradients(self, loss, var_list, aggregate=False):
         var_list = list(var_list)
-        self._zero_gradients(var_list)
+        grads = [v.grad if v is not None else None for v in var_list]
 
-        self._skip_update = True
+        self.detach_gradients(grads)
 
-        if not torch.isfinite(loss):
-            self._skip_update = True
-            self._update_if_finite_grads()
-        else:
-            self._skip_update = False
-            loss = loss * self._scale
-            loss.backward()
+        if not aggregate:
+            self.zero_gradients(grads)
 
-            for v in var_list:
-                if v is None:
-                    continue
-
-                norm = v.grad.norm()
-
-                if not torch.isfinite(norm):
-                    self._skip_update = True
-                    self._update_if_not_finite_grads()
-                    break
-
-            self._update_if_finite_grads()
+        loss = loss * self._scale
+        loss.backward()
 
         return [v.grad if v is not None else None for v in var_list]
 
     def apply_gradients(self, grads_and_vars):
-        if self._skip_update:
-            return
+        grads, var_list = list(zip(*grads_and_vars))
+        new_grads = []
+
+        for grad in grads:
+            if grad is None:
+                new_grads.append(None)
+                continue
+
+            norm = grad.data.norm()
+
+            if not torch.isfinite(norm):
+                self._update_if_not_finite_grads()
+                return
+            else:
+                # Rescale gradients
+                new_grads.append(grad.data.float().mul_(1.0 / self._scale))
+
+        self._update_if_finite_grads()
+        self._optimizer.apply_gradients(zip(new_grads, var_list))
+
+
+class MultiStepOptimizer(Optimizer):
+
+    def __init__(self, optimizer, n=1, compress=True,
+                 name="MultiStepOptimizer", **kwargs):
+        super(MultiStepOptimizer, self).__init__(name, **kwargs)
+        self._n = n
+        self._iterations = 0
+        self._optimizer = optimizer
+        self._compress = compress
+
+    def compute_gradients(self, loss, var_list, aggregate=False):
+        if self._iterations % self._n == 0:
+            return self._optimizer.compute_gradients(loss, var_list, aggregate)
         else:
-            grads, var_list = list(zip(*grads_and_vars))
-            new_grads = []
-            new_var_list = []
+            return self._optimizer.compute_gradients(loss, var_list, True)
 
-            for grad, var in zip(grads, var_list):
-                if grad is None:
-                    continue
+    def apply_gradients(self, grads_and_vars):
+        size = dist.get_world_size()
+        grads, var_list = list(zip(*grads_and_vars))
+        self._iterations += 1
 
-                if self._slots.get(var, None) is None:
-                    self._slots[var] = torch.zeros_like(var.data,
-                                                        dtype=torch.float32)
+        if self._n == 1:
+            if size > 1:
+                self.sync_gradients(grads, compress=self._compress)
+                self.scale_gradients(grads, 1.0 / size)
 
-                v = self._slots[var]
+            self._optimizer.apply_gradients(zip(grads, var_list))
+        else:
+            if self._iterations % self._n != 0:
+                return
 
-                # Convert gradients to FP32 and rescale
-                new_grads.append(grad.to(torch.float32) / self._scale)
-                new_var_list.append(v)
+            if size > 1:
+                self.sync_gradients(grads, compress=self._compress)
 
-            self._optimizer.apply_gradients(zip(new_grads, new_var_list))
-
-            for var, val in zip(var_list, new_var_list):
-                if var is not None:
-                    var.data.add_(val.to(var))
-
-                val.data.zero_()
-
-
-
+            self.scale_gradients(grads, 1.0 / (self._n * size))
+            self._optimizer.apply_gradients(zip(grads, var_list))

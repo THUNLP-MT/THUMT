@@ -72,7 +72,7 @@ def _get_inference_fn(model_fns, features):
         # Ensemble
         log_prob = sum(outputs) / float(len(outputs))
 
-        return log_prob, next_state
+        return log_prob.float(), next_state
 
     return inference_fn
 

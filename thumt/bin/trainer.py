@@ -11,6 +11,7 @@ import glob
 import itertools
 import logging
 import os
+import re
 import six
 import socket
 import time
@@ -222,15 +223,13 @@ def save_checkpoint(step, epoch, model, optimizer, params):
         utils.save(state, params.output, params.keep_checkpoint_max)
 
 
-def infer_gpu_num(s):
-    kv_list = s.split(",")
-    kv_list = [kv.split("=") for kv in kv_list]
-    kv_dict = {item[0]: item[1] for item in kv_list}
+def infer_gpu_num(param_str):
+    result = re.match(r".*device_list=\[(.*)\].*", param_str)
 
-    if "device_list" not in kv_dict:
+    if not result:
         return 1
     else:
-        dev_str = kv_dict["device_list"].lstrip("[").rstrip("]")
+        dev_str = result.groups()[-1]
         return len(dev_str.split(","))
 
 
@@ -279,10 +278,11 @@ def main(args):
                                          beta_1=params.adam_beta1,
                                          beta_2=params.adam_beta2,
                                          epsilon=params.adam_epsilon)
-    optimizer = optimizers.MultiStepOptimizer(optimizer, params.update_cycle)
 
     if args.half:
         optimizer = optimizers.LossScalingOptimizer(optimizer)
+
+    optimizer = optimizers.MultiStepOptimizer(optimizer, params.update_cycle)
 
     if dist.get_rank() == 0:
         print_variables(model)

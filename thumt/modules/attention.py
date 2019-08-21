@@ -43,8 +43,8 @@ class MultiHeadAttention(nn.Module):
             v = self.v_transform(query)
 
             if kv is not None:
-                k = torch.cat([kv[0], k], dim=1)
-                v = torch.cat([kv[1], v], dim=1)
+                k = torch.cat([kv[0].to(k), k], dim=1)
+                v = torch.cat([kv[1].to(v), v], dim=1)
 
         # split heads
         qh = self.split_heads(q, self.num_heads)

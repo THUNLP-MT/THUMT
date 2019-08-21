@@ -35,6 +35,7 @@ class SmoothedCrossEntropyLoss(torch.nn.Module):
             sum_probs = torch.sum(log_probs, dim=-1)
             loss = p * loss + q * (sum_probs - loss)
         else:
+            # Prevent FP16 overflow
             sum_probs = torch.sum(log_probs.to(torch.float32), dim=-1)
             loss = loss.to(torch.float32)
             loss = p * loss + q * (sum_probs - loss)

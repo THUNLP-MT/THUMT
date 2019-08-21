@@ -36,14 +36,14 @@ class LinearWarmupRsqrtDecay(LearningRateSchedule):
         if step <= self.warmup_steps:
             lr_step = self.maximum_learning_rate - self.initial_learning_rate
             lr_step /= self.warmup_steps
-            return self.initial_learning_rate + lr_step * (step - 1)
+            return self.initial_learning_rate + lr_step * step
         else:
             step = step / self.warmup_steps
             return self.maximum_learning_rate * (step ** -0.5)
 
     def get_config(self):
         return {
+            "learning_rate": self.maximum_learning_rate,
             "initial_learning_rate": self.initial_learning_rate,
-            "maximum_learning_rate": self.maximum_learning_rate,
             "warmup_steps": self.warmup_steps
         }

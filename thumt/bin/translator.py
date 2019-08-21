@@ -41,6 +41,8 @@ def parse_args():
                         help="Name of the model")
     parser.add_argument("--parameters", type=str, default="",
                         help="Additional hyper parameters")
+    parser.add_argument("--half", action="store_true",
+                        help="Use half precision for decoding")
 
     return parser.parse_args()
 
@@ -147,6 +149,10 @@ def main(args):
     # Create model
     with torch.no_grad():
         model = model_cls(params).cuda()
+
+        if args.half:
+            model = model.half()
+
         model.eval()
         model.load_state_dict(
             torch.load(utils.latest_checkpoint(args.checkpoint))["model"])
