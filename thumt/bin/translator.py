@@ -155,7 +155,8 @@ def main(args):
 
         model.eval()
         model.load_state_dict(
-            torch.load(utils.latest_checkpoint(args.checkpoint))["model"])
+            torch.load(utils.latest_checkpoint(args.checkpoint))["model"],
+                       map_location="cpu")
 
         # Decoding
         dataset = data.get_dataset(args.input, "infer", params)

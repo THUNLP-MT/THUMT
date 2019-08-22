@@ -219,7 +219,12 @@ def print_variables(model):
 
 def save_checkpoint(step, epoch, model, optimizer, params):
     if dist.get_rank() == 0:
-        state = {"step": step, "epoch": epoch, "model": model.state_dict()}
+        state = {
+            "step": step,
+            "epoch": epoch,
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict()
+        }
         utils.save(state, params.output, params.keep_checkpoint_max)
 
 
@@ -293,10 +298,13 @@ def main(args):
     checkpoint = utils.latest_checkpoint(params.output)
 
     if checkpoint is not None:
-        state = torch.load(checkpoint)
+        state = torch.load(checkpoint, map_location="cpu")
         step = state["step"]
         epoch = state["epoch"]
         model.load_state_dict(state["model"])
+
+        if "optimizer" in state:
+            optimizer.load_state_dict(state["optimizer"])
     else:
         step = 0
         epoch = 0
@@ -323,9 +331,9 @@ def main(args):
             features = data.lookup(features, "train", params)
             loss = train_fn(features)
             gradients = optimizer.compute_gradients(loss,
-                                                    model.parameters())
+                                                    list(model.parameters()))
             optimizer.apply_gradients(zip(gradients,
-                                          list(model.parameters())))
+                                          list(model.named_parameters())))
 
             t = time.time() - t
 

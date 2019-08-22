@@ -16,9 +16,8 @@ class Optimizer(object):
 
     def __init__(self, name, **kwargs):
         self._name = name
-        self._hyper = {}
-        self._slots = {}
         self._iterations = 0
+        self._slots = {}
 
     def detach_gradients(self, gradients):
         for grad in gradients:
@@ -78,17 +77,17 @@ class AdamOptimizer(Optimizer):
     def __init__(self, learning_rate=0.01, beta_1=0.9, beta_2=0.999,
                  epsilon=1e-7, name="Adam", **kwargs):
         super(AdamOptimizer, self).__init__(name, **kwargs)
-        self._hyper["learning_rate"] = learning_rate
-        self._hyper["beta_1"] = beta_1
-        self._hyper["beta_2"] = beta_2
-        self._hyper["epsilon"] = epsilon
+        self._learning_rate = learning_rate
+        self._beta_1 = beta_1
+        self._beta_2 = beta_2
+        self._epsilon = epsilon
 
     def apply_gradients(self, grads_and_vars):
         self._iterations += 1
-        lr = self._hyper["learning_rate"]
-        beta_1 = self._hyper["beta_1"]
-        beta_2 = self._hyper["beta_2"]
-        epsilon = self._hyper["epsilon"]
+        lr = self._learning_rate
+        beta_1 = self._beta_1
+        beta_2 = self._beta_2
+        epsilon = self._epsilon
 
         for grad, var in grads_and_vars:
             if grad is None:
@@ -96,15 +95,16 @@ class AdamOptimizer(Optimizer):
 
             # Convert if grad is not FP32
             grad = grad.data.float()
+            name, var = var
 
-            if self._slots.get(var, None) is None:
-                self._slots[var] = {}
-                self._slots[var]["m"] = torch.zeros_like(var.data,
-                                                         dtype=torch.float32)
-                self._slots[var]["v"] = torch.zeros_like(var.data,
-                                                         dtype=torch.float32)
+            if self._slots.get(name, None) is None:
+                self._slots[name] = {}
+                self._slots[name]["m"] = torch.zeros_like(var.data,
+                                                          dtype=torch.float32)
+                self._slots[name]["v"] = torch.zeros_like(var.data,
+                                                          dtype=torch.float32)
 
-            m, v = self._slots[var]["m"], self._slots[var]["v"]
+            m, v = self._slots[name]["m"], self._slots[name]["v"]
 
             bias_corr_1 = 1 - beta_1 ** self._iterations
             bias_corr_2 = 1 - beta_2 ** self._iterations
@@ -125,6 +125,37 @@ class AdamOptimizer(Optimizer):
                 fp32_var.addcdiv_(-step_size, m, denom)
                 var.data.copy_(fp32_var)
 
+    def state_dict(self):
+        state = {
+            "beta_1": self._beta_1,
+            "beta_2": self._beta_2,
+            "epsilon": self._epsilon,
+            "iterations": self._iterations,
+            "slot": self._slots
+        }
+
+        if not isinstance(self._learning_rate, LearningRateSchedule):
+            state["learning_rate"] = self._learning_rate
+
+        return state
+
+    def load_state_dict(self, state):
+        self._learning = state.get("learning_rate", self._learning_rate)
+        self._beta_1 = state.get("beta_1", self._beta_1)
+        self._beta_2 = state.get("beta_2", self._beta_2)
+        self._epsilon = state.get("epsilon", self._epsilon)
+        self._iterations = state.get("iterations", self._iterations)
+
+        slots = state.get("slots", {})
+        self._slots = {}
+
+        for key in slots:
+            m, v = slots[key]["m"], slots[key]["v"]
+            self._slots[key]["m"] = torch.zeros(m.shape, dtype=torch.float32)
+            self._slots[key]["v"] = torch.zeros(v.shape, dtype=torch.float32)
+            self._slots[key]["m"].copy_(m)
+            self._slots[key]["v"].copy_(v)
+
 
 class LossScalingOptimizer(Optimizer):
 
@@ -133,13 +164,12 @@ class LossScalingOptimizer(Optimizer):
         super(LossScalingOptimizer, self).__init__(name, **kwargs)
         self._optimizer = optimizer
         self._scale = scale
-        self._skip_update = False
-        self._increment_preiod = increment_period
+        self._increment_period = increment_period
         self._multiplier = multiplier
         self._num_good_steps = 0
 
     def _update_if_finite_grads(self):
-        if self._num_good_steps + 1 > self._increment_preiod:
+        if self._num_good_steps + 1 > self._increment_period:
             self._scale *= self._multiplier
             self._num_good_steps = 0
         else:
@@ -183,6 +213,25 @@ class LossScalingOptimizer(Optimizer):
         self._update_if_finite_grads()
         self._optimizer.apply_gradients(zip(new_grads, var_list))
 
+    def state_dict(self):
+        state = {
+            "scale": self._scale,
+            "increment_eriod": self._increment_period,
+            "multiplier": self._multiplier,
+            "num_good_steps": self._num_good_steps,
+            "optimizer": self._optimizer.state_dict()
+        }
+        return state
+
+    def load_state_dict(self, state):
+        self._scale = state.get("scale", self._scale)
+        self._increment_period = state.get("increment_period",
+                                           self._increment_period)
+        self._multiplier = state.get("multiplier", self._multiplier)
+        self._num_good_steps = state.get("num_good_steps",
+                                         self._num_good_steps)
+        self._optimizer.load_state_dict(state.get("optimizer", {}))
+
 
 class MultiStepOptimizer(Optimizer):
 
@@ -190,7 +239,6 @@ class MultiStepOptimizer(Optimizer):
                  name="MultiStepOptimizer", **kwargs):
         super(MultiStepOptimizer, self).__init__(name, **kwargs)
         self._n = n
-        self._iterations = 0
         self._optimizer = optimizer
         self._compress = compress
 
@@ -220,3 +268,18 @@ class MultiStepOptimizer(Optimizer):
 
             self.scale_gradients(grads, 1.0 / (self._n * size))
             self._optimizer.apply_gradients(zip(grads, var_list))
+
+    def state_dict(self):
+        state = {
+            "n": self._n,
+            "iterations": self._iterations,
+            "compress": self._compress,
+            "optimizer": self._optimizer.state_dict()
+        }
+        return state
+
+    def load_state_dict(self, state):
+        self._n = state.get("n", self._n)
+        self._iterations = state.get("iterations", self._iterations)
+        self._compress = state.get("compress", self._iterations)
+        self._optimizer.load_state_dict(state.get("optimizer", {}))
