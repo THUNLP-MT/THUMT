@@ -444,6 +444,11 @@ def main(args):
             )
         ]
 
+        broadcast_hook = distribute.get_broadcast_hook()
+
+        if broadcast_hook:
+            train_hooks.append(broadcast_hook)
+
         if distribute.rank() == 0:
             # Add hooks
             save_vars = tf.trainable_variables() + [global_step]
@@ -462,10 +467,6 @@ def main(args):
                         saver=saver),
                 step=params.update_cycle)
             )
-
-            broadcast_hook = distribute.get_broadcast_hook()
-            if broadcast_hook:
-                train_hooks.append(broadcast_hook)
 
             if eval_input_fn is not None:
                 train_hooks.append(

@@ -373,6 +373,5 @@ def main(args):
             count += 1
         outfile.close()
 
-
 if __name__ == "__main__":
     main(parse_args())
