@@ -373,10 +373,10 @@ corpus.tc.32k.de.shuf corpus.tc.32k.en.shuf --vocabulary
 vocab.32k.de.txt vocab.32k.en.txt --model transformer
 --validation newstest2014.tc.32k.de --references
 newstest2014.tc.en --parameters=batch_size=6250,device_list=[0],
-update_cycle=4,train_steps=200000,eval_step=5000 &
+update_cycle=4,train_steps=200000,eval_steps=5000 &
 \end{everbatim}
 \\
-Output that would normally go to the terminal goes to a file called \verb|nohup.out|. Since the parameter \verb|eval_step| is set to 5,000, the intermediate model will be validated for every 5,000 steps. Here is an example output for validation:
+Output that would normally go to the terminal goes to a file called \verb|nohup.out|. Since the parameter \verb|eval_steps| is set to 5,000, the intermediate model will be validated for every 5,000 steps. Here is an example output for validation:
 \\
 \begin{everbatim}
 INFO:tensorflow:Validating model at step 5000
