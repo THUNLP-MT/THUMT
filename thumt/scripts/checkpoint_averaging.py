@@ -100,7 +100,7 @@ def main(_):
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         for p, assign_op, (name, value) in zip(placeholders, assign_ops,
-                                               var_values.iteritems()):
+                                               var_values.items()): # change to python 3 style, iteritems() is python 2 style
             sess.run(assign_op, {p: value})
         saved_name = os.path.join(FLAGS.output, "average")
         saver.save(sess, saved_name, global_step=global_step)
