@@ -97,7 +97,7 @@ class TransformerDecoder(nn.Module):
         super(TransformerDecoder, self).__init__()
         self.layers = nn.ModuleList([
             TransformerDecoderLayer(params)
-            for i in range(params.num_encoder_layers)])
+            for i in range(params.num_decoder_layers)])
 
     def forward(self, x, attn_bias, encdec_bias, memory, state=None):
         for i, layer in enumerate(self.layers):
@@ -125,38 +125,63 @@ class Transformer(nn.Module):
         self.reset_parameters()
 
     def build_embedding(self, params):
-        src_vocab_size = len(params.vocabulary["source"])
-        tgt_vocab_size = len(params.vocabulary["target"])
+        svoc_size = len(params.vocabulary["source"])
+        tvoc_size = len(params.vocabulary["target"])
 
-        self.source_embedding = torch.nn.Parameter(
-            torch.empty([src_vocab_size, params.hidden_size]))
+        if params.shared_source_target_embedding and svoc_size != tvoc_size:
+            raise ValueError("Cannot share source and target embedding.")
 
-        if params.shared_source_target_embedding:
-            self.target_embedding = self.source_embedding
-        else:
-            self.target_embedding = torch.nn.Parameter(
-                torch.empty([tgt_vocab_size, params.hidden_size]))
-
-        if params.shared_embedding_and_softmax_weights:
-            self.softmax_weights = self.target_embedding
-        else:
+        if not params.shared_embedding_and_softmax_weights:
             self.softmax_weights = torch.nn.Parameter(
-                torch.empty([tgt_vocab_size, params.hidden_size]))
+                torch.empty([tvoc_size, params.hidden_size]))
+
+        if not params.shared_source_target_embedding:
+            self.source_embedding = torch.nn.Parameter(
+                torch.empty([svoc_size, params.hidden_size]))
+            self.target_embedding = torch.nn.Parameter(
+                torch.empty([tvoc_size, params.hidden_size]))
+        else:
+            self.weights = torch.nn.Parameter(
+                torch.empty([svoc_size, params.hidden_size]))
 
         self.bias = torch.nn.Parameter(torch.zeros([params.hidden_size]))
 
+    @property
+    def src_embedding(self):
+        if self.params.shared_source_target_embedding:
+            return self.weights
+        else:
+            return self.source_embedding
+
+    @property
+    def tgt_embedding(self):
+        if self.params.shared_source_target_embedding:
+            return self.weights
+        else:
+            return self.target_embedding
+
+    @property
+    def softmax_embedding(self):
+        if not self.params.shared_embedding_and_softmax_weights:
+            return self.softmax_weights
+        else:
+            return self.tgt_embedding
+
     def reset_parameters(self):
-        nn.init.normal_(self.source_embedding, mean=0,
+        nn.init.normal_(self.src_embedding, mean=0,
                         std=self.params.hidden_size ** -0.5)
-        nn.init.normal_(self.target_embedding, mean=0,
+        nn.init.normal_(self.tgt_embedding, mean=0,
                         std=self.params.hidden_size ** -0.5)
+
+        if not self.params.shared_embedding_and_softmax_weights:
+            nn.init.xavier_uniform_(self.softmax_weights)
 
     def encode(self, features, state):
         src_seq = features["source"]
         src_mask = torch.ne(src_seq, 0).float()
         enc_attn_bias = self.masking_bias(src_mask)
 
-        inputs = torch.nn.functional.embedding(src_seq, self.source_embedding)
+        inputs = torch.nn.functional.embedding(src_seq, self.src_embedding)
         inputs = inputs * (self.hidden_size ** 0.5)
         inputs = inputs + self.bias
         inputs = self.dropout(self.encoding(inputs))
@@ -175,7 +200,7 @@ class Transformer(nn.Module):
         enc_attn_bias = state["enc_attn_bias"]
         dec_attn_bias = self.causal_bias(tgt_seq.shape[1])
 
-        targets = torch.nn.functional.embedding(tgt_seq, self.target_embedding)
+        targets = torch.nn.functional.embedding(tgt_seq, self.tgt_embedding)
         targets = targets * (self.hidden_size ** 0.5)
 
         decoder_input = torch.cat(
@@ -195,7 +220,7 @@ class Transformer(nn.Module):
 
         decoder_output = torch.reshape(decoder_output, [-1, self.hidden_size])
         decoder_output = torch.transpose(decoder_output, -1, -2)
-        logits = torch.matmul(self.softmax_weights, decoder_output)
+        logits = torch.matmul(self.softmax_embedding, decoder_output)
         logits = torch.transpose(logits, 0, 1)
 
         return logits, state

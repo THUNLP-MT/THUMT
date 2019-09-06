@@ -238,7 +238,7 @@ def infer_gpu_num(param_str):
         return len(dev_str.split(","))
 
 
-def broadcast(model, optimizer):
+def broadcast(model):
     for var in model.parameters():
         dist.broadcast(var.data, 0)
 
@@ -308,7 +308,7 @@ def main(args):
     else:
         step = 0
         epoch = 0
-        broadcast(model, optimizer)
+        broadcast(model)
 
     def train_fn(features):
         labels = features["labels"]

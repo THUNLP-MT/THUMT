@@ -56,7 +56,7 @@ def main(args):
 
         for key in state:
             if key not in values:
-                values[key] = state[key].float()
+                values[key] = state[key].float().clone()
             else:
                 values[key].add_(state[key].float())
 
