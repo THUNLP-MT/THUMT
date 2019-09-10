@@ -9,6 +9,7 @@ from __future__ import print_function
 import argparse
 import operator
 import os
+import six
 
 import numpy as np
 import tensorflow as tf
@@ -100,7 +101,7 @@ def main(_):
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         for p, assign_op, (name, value) in zip(placeholders, assign_ops,
-                                               var_values.iteritems()):
+                                               six.iteritems(var_values)):
             sess.run(assign_op, {p: value})
         saved_name = os.path.join(FLAGS.output, "average")
         saver.save(sess, saved_name, global_step=global_step)
