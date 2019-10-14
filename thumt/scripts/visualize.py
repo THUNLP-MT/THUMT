@@ -7,6 +7,15 @@ import re
 from matplotlib import font_manager
 
 
+def _open(filename, mode="r", encoding="utf-8"):
+    if sys.version_info.major == 2:
+        return open(filename, mode=mode)
+    elif sys.version_info.major == 3:
+        return open(filename, mode=mode, encoding=encoding)
+    else:
+        raise RuntimeError("Unknown Python version for running!")
+
+
 def parse_numpy(string):
     string = string.replace('[', ' ').replace(']', ' ').replace(',', ' ')
     string = re.sub(' +', ' ', string)
@@ -19,7 +28,7 @@ fontP.set_family('SimHei')
 fontP.set_size(14)
 
 # parse from text
-result = open(sys.argv[1], 'r').read()
+result = _open(sys.argv[1], 'r').read()
 src = re.findall('src: (.*?)\n', result)[0]
 src = src.decode('utf-8')
 trg = re.findall('trg: (.*?)\n', result)[0]
@@ -47,3 +56,4 @@ plt.yticks(range(len_t), trg_words, fontsize=14, family=fontname)
 
 matplotlib.rcParams['font.family'] = "Times"
 plt.show()
+

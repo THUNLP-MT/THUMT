@@ -7,6 +7,16 @@ from __future__ import print_function
 
 import argparse
 import numpy
+import sys
+
+
+def _open(filename, mode="r", encoding="utf-8"):
+    if sys.version_info.major == 2:
+        return open(filename, mode=mode)
+    elif sys.version_info.major == 3:
+        return open(filename, mode=mode, encoding=encoding)
+    else:
+        raise RuntimeError("Unknown Python version for running!")
 
 
 def parseargs():
@@ -26,7 +36,7 @@ def parseargs():
 def main(args):
     name = args.corpus
     suffix = "." + args.suffix
-    stream = [open(item, "r") for item in name]
+    stream = [_open(item, "r") for item in name]
     data = [fd.readlines() for fd in stream]
     minlen = min([len(lines) for lines in data])
     count = 0
@@ -38,9 +48,9 @@ def main(args):
     numpy.random.shuffle(indices)
 
     if args.num_shards == 1:
-        newstream = [[open(item + suffix, "w") for item in name]]
+        newstream = [[_open(item + suffix, "w") for item in name]]
     else:
-        newstream = [[open(item + "-%s-of-%s" % (i, args.num_shards), "w")
+        newstream = [[_open(item + "-%s-of-%s" % (i, args.num_shards), "w")
                       for item in name] for i in range(args.num_shards)]
 
     for idx in indices.tolist():

@@ -8,12 +8,22 @@ from __future__ import print_function
 
 import argparse
 import collections
+import sys
+
+
+def _open(filename, mode="r", encoding="utf-8"):
+    if sys.version_info.major == 2:
+        return open(filename, mode=mode)
+    elif sys.version_info.major == 3:
+        return open(filename, mode=mode, encoding=encoding)
+    else:
+        raise RuntimeError("Unknown Python version for running!")
 
 
 def count_words(filename):
     counter = collections.Counter()
 
-    with open(filename, "r") as fd:
+    with _open(filename, "r") as fd:
         for line in fd:
             words = line.strip().split()
             counter.update(words)
@@ -38,7 +48,7 @@ def save_vocab(name, vocab):
     pairs = sorted(vocab.items(), key=lambda x: (x[1], x[0]))
     words, ids = list(zip(*pairs))
 
-    with open(name, "w") as f:
+    with _open(name, "w") as f:
         for word in words:
             f.write(word + "\n")
 
