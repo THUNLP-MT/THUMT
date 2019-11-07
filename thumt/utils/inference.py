@@ -51,7 +51,9 @@ def _get_inference_fn(model_fns, features):
     def inference_fn(inputs, state):
         local_features = {
             "source": features["source"],
+            "source_mask": features["source_mask"],
             "target": inputs,
+            "target_mask": torch.ones(*inputs.shape).float().cuda()
         }
 
         outputs = []
@@ -186,6 +188,10 @@ def beam_search(models, features, params):
     features["source"] = features["source"].repeat([1, beam_size, 1])
     features["source"] = torch.reshape(features["source"],
                                        [batch_size * beam_size, seq_length])
+    features["source_mask"] = torch.unsqueeze(features["source_mask"], 1)
+    features["source_mask"] = features["source_mask"].repeat([1, beam_size, 1])
+    features["source_mask"] = torch.reshape(features["source_mask"],
+                                       [batch_size * beam_size, seq_length])
 
     # For source sequence length
     max_step = seq_length + decode_length
@@ -238,6 +244,6 @@ def beam_search(models, features, params):
     final_seqs = torch.where(final_flags.any(1)[:, None, None], final_seqs,
                              alive_seqs)
     final_scores = torch.where(final_flags.any(1)[:, None, None], final_scores,
-                            alive_scores)
+                               alive_scores)
 
     return final_seqs[:, :top_beams, 1:], final_scores[:, :top_beams]

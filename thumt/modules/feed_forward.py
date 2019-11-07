@@ -7,27 +7,35 @@ from __future__ import print_function
 
 import torch
 import torch.nn as nn
+import thumt.utils as utils
+
+from thumt.modules.module import Module
+from thumt.modules.affine import Affine
 
 
-class FeedForward(nn.Module):
+class FeedForward(Module):
 
-    def __init__(self, input_size, hidden_size, output_size=None, dropout=0.0):
-        super(FeedForward, self).__init__()
+    def __init__(self, input_size, hidden_size, output_size=None, dropout=0.0,
+                 name="feed_forward"):
+        super(FeedForward, self).__init__(name=name)
 
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size = output_size or input_size
+        self.dropout = dropout
 
-        self.input_transform = nn.Linear(input_size, hidden_size)
-        self.output_transform = nn.Linear(hidden_size, self.output_size)
-        self.dropout = nn.Dropout(dropout)
-        self.relu = nn.ReLU()
+        with utils.scope(name):
+            self.input_transform = Affine(input_size, hidden_size,
+                                          name="input_transform")
+            self.output_transform = Affine(hidden_size, self.output_size,
+                                           name="output_transform")
 
         self.reset_parameters()
 
     def forward(self, x):
-        h = self.relu(self.input_transform(x))
-        return self.output_transform(self.dropout(h))
+        h = nn.functional.relu(self.input_transform(x))
+        h = nn.functional.dropout(h, self.dropout, self.training)
+        return self.output_transform(h)
 
     def reset_parameters(self):
         nn.init.xavier_uniform_(self.input_transform.weight)

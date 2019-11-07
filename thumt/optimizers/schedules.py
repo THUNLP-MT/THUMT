@@ -6,6 +6,10 @@ from __future__ import division
 from __future__ import print_function
 
 
+import thumt.utils as utils
+import thumt.utils.summary as summary
+
+
 class LearningRateSchedule(object):
 
     def __call__(self, step):
@@ -22,28 +26,35 @@ class LearningRateSchedule(object):
 
 class LinearWarmupRsqrtDecay(LearningRateSchedule):
 
-    def __init__(self, learning_rate, warmup_steps, initial_learning_rate=0.0):
+    def __init__(self, learning_rate, warmup_steps, initial_learning_rate=0.0,
+                 summary=True):
         super(LinearWarmupRsqrtDecay, self).__init__()
 
         if not initial_learning_rate:
             initial_learning_rate = initial_learning_rate / warmup_steps
 
-        self.initial_learning_rate = initial_learning_rate
-        self.maximum_learning_rate = learning_rate
-        self.warmup_steps = warmup_steps
+        self._initial_learning_rate = initial_learning_rate
+        self._maximum_learning_rate = learning_rate
+        self._warmup_steps = warmup_steps
+        self._summary = summary
 
     def __call__(self, step):
-        if step <= self.warmup_steps:
-            lr_step = self.maximum_learning_rate - self.initial_learning_rate
-            lr_step /= self.warmup_steps
-            return self.initial_learning_rate + lr_step * step
+        if step <= self._warmup_steps:
+            lr_step = self._maximum_learning_rate - self._initial_learning_rate
+            lr_step /= self._warmup_steps
+            lr = self._initial_learning_rate + lr_step * step
         else:
-            step = step / self.warmup_steps
-            return self.maximum_learning_rate * (step ** -0.5)
+            step = step / self._warmup_steps
+            lr = self._maximum_learning_rate * (step ** -0.5)
+
+        if self._summary:
+            summary.scalar("learning_rate", lr, utils.get_global_step())
+
+        return lr
 
     def get_config(self):
         return {
-            "learning_rate": self.maximum_learning_rate,
-            "initial_learning_rate": self.initial_learning_rate,
-            "warmup_steps": self.warmup_steps
+            "learning_rate": self._maximum_learning_rate,
+            "initial_learning_rate": self._initial_learning_rate,
+            "warmup_steps": self._warmup_steps
         }

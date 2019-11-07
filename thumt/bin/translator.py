@@ -6,15 +6,12 @@ from __future__ import division
 from __future__ import print_function
 
 import argparse
-import glob
-import itertools
 import logging
 import os
 import six
 import time
 import torch
 
-import numpy as np
 import thumt.data as data
 import thumt.models as models
 import thumt.utils as utils

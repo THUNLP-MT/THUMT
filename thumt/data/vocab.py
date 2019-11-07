@@ -13,9 +13,9 @@ def _lookup(x, vocab):
     x = x.tolist()
     y = []
 
-    for i, batch in enumerate(x):
+    for _, batch in enumerate(x):
         ids = []
-        for j, v in enumerate(batch):
+        for _, v in enumerate(batch):
             ids.append(vocab[v] if v in vocab else 2)
         y.append(ids)
 
@@ -38,29 +38,36 @@ def load_vocabulary(filename):
     return vocab, word2idx, idx2word
 
 
-def lookup(features, mode, params):
+def lookup(inputs, mode, params):
     if mode != "infer":
-        inputs, labels = features
-        source, target = inputs
+        features, labels = inputs
+        source, target = features["source"], features["target"]
         source = source.numpy()
         target = target.numpy()
         labels = labels.numpy()
+        src_mask = torch.FloatTensor(features["source_mask"].numpy()).cuda()
+        tgt_mask = torch.FloatTensor(features["target_mask"].numpy()).cuda()
 
         source = _lookup(source, params.lookup["source"])
         target = _lookup(target, params.lookup["target"])
         labels = _lookup(labels, params.lookup["target"])
 
         features = {
-            "source": source, "target": target, "labels": labels
+            "source": source,
+            "source_mask": src_mask,
+            "target": target,
+            "target_mask": tgt_mask
         }
 
-        return features
+        return features, labels
     else:
-        source = features.numpy()
+        source = inputs["source"].numpy()
         source = _lookup(source, params.lookup["source"])
+        src_mask = torch.FloatTensor(inputs["source_mask"].numpy()).cuda()
 
         features = {
-            "source": source
+            "source": source,
+            "source_mask": src_mask
         }
 
         return features

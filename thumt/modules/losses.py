@@ -7,7 +7,6 @@ from __future__ import print_function
 
 import math
 import torch
-import torch.nn as nn
 
 
 class SmoothedCrossEntropyLoss(torch.nn.Module):
@@ -17,7 +16,7 @@ class SmoothedCrossEntropyLoss(torch.nn.Module):
         self.smoothing = smoothing
         self.normalize = normalize
 
-    def __call__(self, logits, labels):
+    def forward(self, logits, labels):
         shape = labels.shape
         logits = torch.reshape(logits, [-1, logits.shape[-1]])
         labels = torch.reshape(labels, [-1])

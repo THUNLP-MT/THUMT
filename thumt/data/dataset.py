@@ -34,6 +34,15 @@ def build_input_fn(filenames, mode, params):
                 tf.concat([y, [tf.constant(params.eos)]], axis=0)),
             num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
+        dataset = dataset.map(
+            lambda x, y: ({
+                "source": x[0],
+                "source_length": tf.shape(x[0])[0],
+                "target": x[1],
+                "target_length": tf.shape(x[1])[0]
+            }, y),
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
         def bucket_boundaries(max_length, min_length=8, step=8):
             x = min_length
             boundaries = []
@@ -44,18 +53,16 @@ def build_input_fn(filenames, mode, params):
 
             return boundaries
 
-        mult = params.batch_multiplier
-        batch_size = params.batch_size * params.batch_multiplier
+        batch_size = params.batch_size
         max_length = (params.max_length // 8) * 8
         min_length = params.min_length
         boundaries = bucket_boundaries(max_length)
-        batch_sizes = [max(mult, (batch_size // (x - 1)) // mult * mult)
+        batch_sizes = [max(1, batch_size // (x - 1))
                        if not params.fixed_batch_size else batch_size
                        for x in boundaries] + [1]
 
         def element_length_func(x, y):
-            (src, tgt), _ = x, y
-            return tf.maximum(tf.shape(src)[0], tf.shape(tgt)[0])
+            return tf.maximum(x["source_length"], x["target_length"])
 
         def valid_size(x, y):
             size = element_length_func(x, y)
@@ -65,16 +72,35 @@ def build_input_fn(filenames, mode, params):
             element_length_func,
             boundaries,
             batch_sizes,
-            padded_shapes=(
-                (tf.TensorShape([None]), tf.TensorShape([None])),
-                tf.TensorShape([None])),
-            padding_values=(
-                (tf.constant(params.pad), tf.constant(params.pad)),
-                tf.constant(params.pad)),
+            padded_shapes=({
+                "source": tf.TensorShape([None]),
+                "source_length": tf.TensorShape([]),
+                "target": tf.TensorShape([None]),
+                "target_length": tf.TensorShape([])
+                }, tf.TensorShape([None])),
+            padding_values=({
+                "source": params.pad,
+                "source_length": 0,
+                "target": params.pad,
+                "target_length": 0
+                }, params.pad),
             pad_to_bucket_boundary=True)
 
         dataset = dataset.filter(valid_size)
         dataset = dataset.apply(transformation_fn)
+
+        dataset = dataset.map(
+            lambda x, y: ({
+                "source": x["source"],
+                "source_mask": tf.sequence_mask(x["source_length"],
+                                                tf.shape(x["source"])[1],
+                                                tf.float32),
+                "target": x["target"],
+                "target_mask": tf.sequence_mask(x["target_length"],
+                                                tf.shape(x["target"])[1],
+                                                tf.float32)
+            }, y),
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
         return dataset
 
@@ -97,13 +123,43 @@ def build_input_fn(filenames, mode, params):
                 tf.concat([y, [tf.constant(params.eos)]], axis=0)),
             num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
+        dataset = dataset.map(
+            lambda x, y: ({
+                "source": x[0],
+                "source_length": tf.shape(x[0])[0],
+                "target": x[1],
+                "target_length": tf.shape(x[1])[0]
+            }, y),
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
         # Batching
         dataset = dataset.padded_batch(
             params.batch_size,
-            padded_shapes=((tf.TensorShape([None]), tf.TensorShape([None])),
-                           tf.TensorShape([None])),
-            padding_values=((tf.constant(params.pad), tf.constant(params.pad)),
-                            tf.constant(params.pad)))
+            padded_shapes=({
+                "source": tf.TensorShape([None]),
+                "source_length": tf.TensorShape([]),
+                "target": tf.TensorShape([None]),
+                "target_length": tf.TensorShape([])
+                }, tf.TensorShape([None])),
+            padding_values=({
+                "source": params.pad,
+                "source_length": 0,
+                "target": params.pad,
+                "target_length": 0
+                }, params.pad))
+
+        dataset = dataset.map(
+            lambda x, y: ({
+                "source": x["source"],
+                "source_mask": tf.sequence_mask(x["source_length"],
+                                                tf.shape(x["source"])[1],
+                                                tf.float32),
+                "target": x["target"],
+                "target_mask": tf.sequence_mask(x["target_length"],
+                                                tf.shape(x["target"])[1],
+                                                tf.float32)
+            }, y),
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
         return dataset
 
@@ -116,10 +172,32 @@ def build_input_fn(filenames, mode, params):
         dataset = dataset.map(
             lambda x: tf.concat([x, [tf.constant(params.eos)]], axis=0),
             num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        dataset = dataset.map(
+            lambda x: {
+                "source": x,
+                "source_length": tf.shape(x)[0]
+            },
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
         dataset = dataset.padded_batch(
             params.decode_batch_size,
-            padded_shapes=tf.TensorShape([None]),
-            padding_values=tf.constant(params.pad))
+            padded_shapes={
+                "source": tf.TensorShape([None]),
+                "source_length": tf.TensorShape([])
+            },
+            padding_values={
+                "source": tf.constant(params.pad),
+                "source_length": 0
+            })
+
+        dataset = dataset.map(
+            lambda x: {
+                "source": x["source"],
+                "source_mask": tf.sequence_mask(x["source_length"],
+                                                tf.shape(x["source"])[1],
+                                                tf.float32),
+            },
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
         return dataset
 

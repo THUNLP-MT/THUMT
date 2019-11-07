@@ -7,21 +7,31 @@ from __future__ import print_function
 
 import torch
 import torch.nn as nn
+import thumt.utils as utils
+
+from thumt.modules.module import Module
+from thumt.modules.affine import Affine
 
 
-class MultiHeadAttention(nn.Module):
+class MultiHeadAttention(Module):
 
-    def __init__(self, hidden_size, num_heads, dropout=0.0):
-        super(MultiHeadAttention, self).__init__()
+    def __init__(self, hidden_size, num_heads, dropout=0.0,
+                 name="multihead_attention"):
+        super(MultiHeadAttention, self).__init__(name=name)
 
         self.num_heads = num_heads
         self.hidden_size = hidden_size
+        self.dropout = dropout
 
-        self.q_transform = nn.Linear(hidden_size, hidden_size)
-        self.k_transform = nn.Linear(hidden_size, hidden_size)
-        self.v_transform = nn.Linear(hidden_size, hidden_size)
-        self.o_transform = nn.Linear(hidden_size, hidden_size)
-        self.dropout = nn.Dropout(dropout)
+        with utils.scope(name):
+            self.q_transform = Affine(hidden_size, hidden_size,
+                                      name="q_transform")
+            self.k_transform = Affine(hidden_size, hidden_size,
+                                      name="k_transform")
+            self.v_transform = Affine(hidden_size, hidden_size,
+                                      name="v_transform")
+            self.o_transform = Affine(hidden_size, hidden_size,
+                                      name="o_transform")
 
         self.reset_parameters()
 
@@ -61,7 +71,9 @@ class MultiHeadAttention(nn.Module):
         if bias is not None:
             logits = logits + bias
 
-        weights = self.dropout(torch.softmax(logits, dim=-1))
+        weights = torch.nn.functional.dropout(torch.softmax(logits, dim=-1),
+                                              p=self.dropout,
+                                              training=self.training)
 
         x = torch.matmul(weights, vh)
 
@@ -74,9 +86,10 @@ class MultiHeadAttention(nn.Module):
         return output
 
     def reset_parameters(self):
-        nn.init.xavier_uniform_(self.q_transform.weight)
-        nn.init.xavier_uniform_(self.k_transform.weight)
-        nn.init.xavier_uniform_(self.v_transform.weight)
+        # 6 / (4 * hidden_size) -> 6 / (2 * hidden_size)
+        nn.init.xavier_uniform_(self.q_transform.weight, 2 ** -0.5)
+        nn.init.xavier_uniform_(self.k_transform.weight, 2 ** -0.5)
+        nn.init.xavier_uniform_(self.v_transform.weight, 2 ** -0.5)
         nn.init.xavier_uniform_(self.o_transform.weight)
         nn.init.constant_(self.q_transform.bias, 0.0)
         nn.init.constant_(self.k_transform.bias, 0.0)

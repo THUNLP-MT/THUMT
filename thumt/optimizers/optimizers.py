@@ -8,6 +8,8 @@ from __future__ import print_function
 import math
 import torch
 import torch.distributed as dist
+import thumt.utils as utils
+import thumt.utils.summary as summary
 
 from thumt.optimizers.schedules import LearningRateSchedule
 
@@ -30,6 +32,16 @@ class Optimizer(object):
                 grad.mul_(scale)
 
     def sync_gradients(self, gradients, compress=True):
+        grad_vec = torch.nn.utils.parameters_to_vector(gradients)
+
+        if compress:
+            grad_vec = grad_vec.half()
+
+        dist.all_reduce(grad_vec)
+
+        torch.nn.utils.vector_to_parameters(grad_vec, gradients)
+
+        """
         for grad in gradients:
             if grad is None:
                 continue
@@ -40,6 +52,7 @@ class Optimizer(object):
                 grad.copy_(grad_fp16)
             else:
                 dist.all_reduce(grad)
+        """
 
     def zero_gradients(self, gradients):
         for grad in gradients:
@@ -81,6 +94,10 @@ class AdamOptimizer(Optimizer):
         self._beta_1 = beta_1
         self._beta_2 = beta_2
         self._epsilon = epsilon
+        self._summary = True
+
+        if "summary" in kwargs and not kwargs["summary"]:
+            self._summary = False
 
     def apply_gradients(self, grads_and_vars):
         self._iterations += 1
@@ -89,6 +106,8 @@ class AdamOptimizer(Optimizer):
         beta_2 = self._beta_2
         epsilon = self._epsilon
 
+        total_norm = 0.0
+
         for grad, var in grads_and_vars:
             if grad is None:
                 continue
@@ -96,6 +115,16 @@ class AdamOptimizer(Optimizer):
             # Convert if grad is not FP32
             grad = grad.data.float()
             name, var = var
+
+            if self._summary:
+                grad_norm = grad.norm()
+                total_norm += grad_norm ** 2
+                summary.histogram(var.tensor_name, var,
+                                  utils.get_global_step())
+                summary.scalar("norm/" + var.tensor_name, var.norm(),
+                               utils.get_global_step())
+                summary.scalar("grad_norm/" + var.tensor_name, grad_norm,
+                               utils.get_global_step())
 
             if self._slots.get(name, None) is None:
                 self._slots[name] = {}
@@ -124,6 +153,10 @@ class AdamOptimizer(Optimizer):
                 fp32_var = var.data.float()
                 fp32_var.addcdiv_(-step_size, m, denom)
                 var.data.copy_(fp32_var)
+
+        if self._summary:
+            total_norm = total_norm ** 0.5
+            summary.scalar("grad_norm", total_norm, utils.get_global_step())
 
     def state_dict(self):
         state = {
@@ -167,6 +200,10 @@ class LossScalingOptimizer(Optimizer):
         self._increment_period = increment_period
         self._multiplier = multiplier
         self._num_good_steps = 0
+        self._summary = True
+
+        if "summary" in kwargs and not kwargs["summary"]:
+            self._summary = False
 
     def _update_if_finite_grads(self):
         if self._num_good_steps + 1 > self._increment_period:
@@ -193,8 +230,13 @@ class LossScalingOptimizer(Optimizer):
         return [v.grad if v is not None else None for v in var_list]
 
     def apply_gradients(self, grads_and_vars):
+        self._iterations += 1
         grads, var_list = list(zip(*grads_and_vars))
         new_grads = []
+
+        if self._summary:
+            summary.scalar("optimizer/scale", self._scale,
+                           utils.get_global_step())
 
         for grad in grads:
             if grad is None:
@@ -216,7 +258,7 @@ class LossScalingOptimizer(Optimizer):
     def state_dict(self):
         state = {
             "scale": self._scale,
-            "increment_eriod": self._increment_period,
+            "increment_period": self._increment_period,
             "multiplier": self._multiplier,
             "num_good_steps": self._num_good_steps,
             "optimizer": self._optimizer.state_dict()

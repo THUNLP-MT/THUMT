@@ -10,18 +10,20 @@ import torch
 import torch.nn as nn
 
 import thumt.utils as utils
-from thumt.modules import MultiHeadAttention, FeedForward, PositionalEmbedding
+import thumt.modules as modules
 
 
-class AttentionSubLayer(nn.Module):
+class AttentionSubLayer(modules.Module):
 
-    def __init__(self, params):
-        super(AttentionSubLayer, self).__init__()
-        self.attention = MultiHeadAttention(params.hidden_size,
-                                            params.num_heads,
-                                            params.attention_dropout)
-        self.layer_norm = nn.LayerNorm(params.hidden_size)
-        self.dropout = nn.Dropout(params.residual_dropout)
+    def __init__(self, params, name="attention"):
+        super(AttentionSubLayer, self).__init__(name=name)
+
+        with utils.scope(name):
+            self.attention = modules.MultiHeadAttention(
+                params.hidden_size, params.num_heads, params.attention_dropout)
+            self.layer_norm = modules.LayerNorm(params.hidden_size)
+
+        self.dropout = params.residual_dropout
 
     def forward(self, x, bias, memory=None, state=None):
         if self.training or state is None:
@@ -31,30 +33,38 @@ class AttentionSubLayer(nn.Module):
             y, k, v = self.attention(x, bias, memory, kv)
             state["k"], state["v"] = k, v
 
-        return self.layer_norm(x + self.dropout(y))
+        y = nn.functional.dropout(y, self.dropout, self.training)
+
+        return self.layer_norm(x + y)
 
 
-class FFNSubLayer(nn.Module):
+class FFNSubLayer(modules.Module):
 
-    def __init__(self, params, dtype=None):
-        super(FFNSubLayer, self).__init__()
-        self.ffn_layer = FeedForward(params.hidden_size, params.filter_size,
-                                     dropout=params.relu_dropout)
-        self.layer_norm = nn.LayerNorm(params.hidden_size)
-        self.dropout = nn.Dropout(params.residual_dropout)
+    def __init__(self, params, dtype=None, name="ffn_layer"):
+        super(FFNSubLayer, self).__init__(name=name)
+
+        with utils.scope(name):
+            self.ffn_layer = modules.FeedForward(params.hidden_size,
+                                                 params.filter_size,
+                                                 dropout=params.relu_dropout)
+            self.layer_norm = modules.LayerNorm(params.hidden_size)
+        self.dropout = params.residual_dropout
 
     def forward(self, x):
         y = self.ffn_layer(x)
+        y = nn.functional.dropout(y, self.dropout, self.training)
 
-        return self.layer_norm(x + self.dropout(y))
+        return self.layer_norm(x + y)
 
 
-class TransformerEncoderLayer(nn.Module):
+class TransformerEncoderLayer(modules.Module):
 
-    def __init__(self, params):
-        super(TransformerEncoderLayer, self).__init__()
-        self.self_attention = AttentionSubLayer(params)
-        self.feed_forward = FFNSubLayer(params)
+    def __init__(self, params, name="layer"):
+        super(TransformerEncoderLayer, self).__init__(name=name)
+
+        with utils.scope(name):
+            self.self_attention = AttentionSubLayer(params)
+            self.feed_forward = FFNSubLayer(params)
 
     def forward(self, x, bias):
         x = self.self_attention(x, bias)
@@ -62,13 +72,17 @@ class TransformerEncoderLayer(nn.Module):
         return x
 
 
-class TransformerDecoderLayer(nn.Module):
+class TransformerDecoderLayer(modules.Module):
 
-    def __init__(self, params):
-        super(TransformerDecoderLayer, self).__init__()
-        self.self_attention = AttentionSubLayer(params)
-        self.encdec_attention = AttentionSubLayer(params)
-        self.feed_forward = FFNSubLayer(params)
+    def __init__(self, params, name="layer"):
+        super(TransformerDecoderLayer, self).__init__(name=name)
+
+        with utils.scope(name):
+            self.self_attention = AttentionSubLayer(params,
+                                                    name="self_attention")
+            self.encdec_attention = AttentionSubLayer(params,
+                                                    name="encdec_attention")
+            self.feed_forward = FFNSubLayer(params)
 
     def __call__(self, x, attn_bias, encdec_bias, memory, state=None):
         x = self.self_attention(x, attn_bias, state=state)
@@ -77,13 +91,15 @@ class TransformerDecoderLayer(nn.Module):
         return x
 
 
-class TransformerEncoder(nn.Module):
+class TransformerEncoder(modules.Module):
 
-    def __init__(self, params):
-        super(TransformerEncoder, self).__init__()
-        self.layers = nn.ModuleList([
-            TransformerEncoderLayer(params)
-            for i in range(params.num_encoder_layers)])
+    def __init__(self, params, name="encoder"):
+        super(TransformerEncoder, self).__init__(name=name)
+
+        with utils.scope(name):
+            self.layers = nn.ModuleList([
+                TransformerEncoderLayer(params, name="layer_%d" % i)
+                for i in range(params.num_encoder_layers)])
 
     def forward(self, x, bias):
         for layer in self.layers:
@@ -91,13 +107,15 @@ class TransformerEncoder(nn.Module):
         return x
 
 
-class TransformerDecoder(nn.Module):
+class TransformerDecoder(modules.Module):
 
-    def __init__(self, params):
-        super(TransformerDecoder, self).__init__()
-        self.layers = nn.ModuleList([
-            TransformerDecoderLayer(params)
-            for i in range(params.num_decoder_layers)])
+    def __init__(self, params, name="decoder"):
+        super(TransformerDecoder, self).__init__(name=name)
+
+        with utils.scope(name):
+            self.layers = nn.ModuleList([
+                TransformerDecoderLayer(params, name="layer_%d" % i)
+                for i in range(params.num_decoder_layers)])
 
     def forward(self, x, attn_bias, encdec_bias, memory, state=None):
         for i, layer in enumerate(self.layers):
@@ -109,16 +127,21 @@ class TransformerDecoder(nn.Module):
         return x
 
 
-class Transformer(nn.Module):
+class Transformer(modules.Module):
 
-    def __init__(self, params):
-        super(Transformer, self).__init__()
+    def __init__(self, params, name="transformer"):
+        super(Transformer, self).__init__(name=name)
         self.params = params
-        self.build_embedding(params)
-        self.encoding = PositionalEmbedding()
-        self.dropout = nn.Dropout(params.residual_dropout)
-        self.encoder = TransformerEncoder(params)
-        self.decoder = TransformerDecoder(params)
+
+        with utils.scope(name):
+            self.build_embedding(params)
+            self.encoding = modules.PositionalEmbedding()
+            self.encoder = TransformerEncoder(params)
+            self.decoder = TransformerDecoder(params)
+
+        self.criterion = modules.SmoothedCrossEntropyLoss(
+            params.label_smoothing)
+        self.dropout = params.residual_dropout
         self.hidden_size = params.hidden_size
         self.num_encoder_layers = params.num_encoder_layers
         self.num_decoder_layers = params.num_decoder_layers
@@ -134,17 +157,22 @@ class Transformer(nn.Module):
         if not params.shared_embedding_and_softmax_weights:
             self.softmax_weights = torch.nn.Parameter(
                 torch.empty([tvoc_size, params.hidden_size]))
+            self.add_name(self.softmax_weights, "softmax_weights")
 
         if not params.shared_source_target_embedding:
             self.source_embedding = torch.nn.Parameter(
                 torch.empty([svoc_size, params.hidden_size]))
             self.target_embedding = torch.nn.Parameter(
                 torch.empty([tvoc_size, params.hidden_size]))
+            self.add_name(self.source_embedding, "source_embedding")
+            self.add_name(self.target_embedding, "target_embedding")
         else:
             self.weights = torch.nn.Parameter(
                 torch.empty([svoc_size, params.hidden_size]))
+            self.add_name(self.weights, "weights")
 
         self.bias = torch.nn.Parameter(torch.zeros([params.hidden_size]))
+        self.add_name(self.bias, "bias")
 
     @property
     def src_embedding(self):
@@ -168,23 +196,25 @@ class Transformer(nn.Module):
             return self.tgt_embedding
 
     def reset_parameters(self):
-        nn.init.normal_(self.src_embedding, mean=0,
+        nn.init.normal_(self.src_embedding, mean=0.0,
                         std=self.params.hidden_size ** -0.5)
-        nn.init.normal_(self.tgt_embedding, mean=0,
+        nn.init.normal_(self.tgt_embedding, mean=0.0,
                         std=self.params.hidden_size ** -0.5)
 
         if not self.params.shared_embedding_and_softmax_weights:
-            nn.init.xavier_uniform_(self.softmax_weights)
+            nn.init.normal_(self.softmax_weights, mean=0.0,
+                            std=self.params.hidden_size ** -0.5)
 
     def encode(self, features, state):
         src_seq = features["source"]
-        src_mask = torch.ne(src_seq, 0).float()
+        src_mask = features["source_mask"]
         enc_attn_bias = self.masking_bias(src_mask)
 
         inputs = torch.nn.functional.embedding(src_seq, self.src_embedding)
         inputs = inputs * (self.hidden_size ** 0.5)
         inputs = inputs + self.bias
-        inputs = self.dropout(self.encoding(inputs))
+        inputs = nn.functional.dropout(self.encoding(inputs), self.dropout,
+                                       self.training)
 
         enc_attn_bias = enc_attn_bias.to(inputs)
         encoder_output = self.encoder(inputs, enc_attn_bias)
@@ -206,7 +236,8 @@ class Transformer(nn.Module):
         decoder_input = torch.cat(
             [targets.new_zeros([targets.shape[0], 1, targets.shape[-1]]),
              targets[:, 1:, :]], dim=1)
-        decoder_input = self.dropout(self.encoding(decoder_input))
+        decoder_input = nn.functional.dropout(self.encoding(decoder_input),
+                                              self.dropout, self.training)
 
         encoder_output = state["encoder_output"]
         dec_attn_bias = dec_attn_bias.to(targets)
@@ -225,14 +256,16 @@ class Transformer(nn.Module):
 
         return logits, state
 
-    def forward(self, features):
-        labels = torch.reshape(features["labels"], [-1, 1])
+    def forward(self, features, labels):
+        mask = features["target_mask"]
+
         state = self.empty_state(features["target"].shape[0],
                                  labels.device)
         state = self.encode(features, state)
         logits, _ = self.decode(features, state, "train")
+        loss = self.criterion(logits, labels)
 
-        return logits
+        return torch.sum(loss * mask) / torch.sum(mask)
 
     def empty_state(self, batch_size, device):
         state = {

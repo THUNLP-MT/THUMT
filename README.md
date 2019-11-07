@@ -5,8 +5,8 @@ This is the experimental PyTorch implementation of THUMT.
 ## Prerequisite
 
 * Python 3
-* TensorFlow v2 (CPU version, for data reading only)
 * PyTorch
+* TensorFlow-CPU 2.0 (for data reading, do NOT use GPU version)
 
 ## Features
 
@@ -14,6 +14,7 @@ This is the experimental PyTorch implementation of THUMT.
 * Multi-worker distributed training
 * Gradient aggregation
 * Mixed precision training/decoding
+* TensorBoard for visualization
 
 ## Benchmarks
 
@@ -32,6 +33,6 @@ See the document of TensorFlow version THUMT.
 * `learning_rate_decay` renamed to `learning_rate_schedule`
 * `constant_batch_size` renamed to `fixed_batch_size`
 * `--distribute` changed to `--distributed`
-* Add `--hparam_set` to select predefined hyperparameters
-* Some options are not implemented (e.g. validation)
+* Add `--hparam_set` to select predefined hyper-parameters
+* Some features are not implemented (e.g. validation)
 * Model ensemble and multi-GPU decoding are currently not available

@@ -8,7 +8,6 @@ from __future__ import print_function
 import argparse
 import copy
 import glob
-import itertools
 import logging
 import os
 import re
@@ -17,12 +16,12 @@ import socket
 import time
 import torch
 
-import torch.distributed as dist
 import thumt.data as data
-import thumt.utils as utils
+import torch.distributed as dist
 import thumt.models as models
-import thumt.modules as modules
 import thumt.optimizers as optimizers
+import thumt.utils as utils
+import thumt.utils.summary as summary
 
 
 def parse_args(args=None):
@@ -76,7 +75,6 @@ def default_params():
         unk="<unk>",
         # Dataset
         batch_size=4096,
-        batch_multiplier=1,
         fixed_batch_size=False,
         min_length=1,
         max_length=256,
@@ -104,6 +102,7 @@ def default_params():
         # Checkpoint Saving
         keep_checkpoint_max=20,
         keep_top_checkpoint_max=5,
+        save_summary=True,
         save_checkpoint_secs=0,
         save_checkpoint_steps=1000,
         # Validation
@@ -275,8 +274,10 @@ def main(args):
     if args.half:
         model = model.half()
 
+    # Init tensorboard
+    summary.init(params.output, params.save_summary)
+
     model.train()
-    criterion = modules.SmoothedCrossEntropyLoss(params.label_smoothing)
     schedule = optimizers.LinearWarmupRsqrtDecay(params.learning_rate,
                                                  params.warmup_steps)
     optimizer = optimizers.AdamOptimizer(learning_rate=schedule,
@@ -310,12 +311,10 @@ def main(args):
         epoch = 0
         broadcast(model)
 
-    def train_fn(features):
-        labels = features["labels"]
-        logits = model(features)
-        loss = criterion(logits, labels)
-        mask = torch.ne(labels, 0).to(loss)
-        return torch.sum(loss * mask) / torch.sum(mask)
+    def train_fn(inputs):
+        features, labels = inputs
+        loss = model(features, labels)
+        return loss
 
     counter = 0
     should_save = False
@@ -324,6 +323,7 @@ def main(args):
         for features in dataset:
             if counter % params.update_cycle == 0:
                 step += 1
+                utils.set_global_step(step)
                 should_save = True
 
             counter += 1
@@ -332,10 +332,17 @@ def main(args):
             loss = train_fn(features)
             gradients = optimizer.compute_gradients(loss,
                                                     list(model.parameters()))
+            if params.clip_grad_norm:
+                torch.utils.clip_grad_norm_(model.parameters(),
+                                            params.clip_grad_norm)
+
             optimizer.apply_gradients(zip(gradients,
                                           list(model.named_parameters())))
 
             t = time.time() - t
+
+            summary.scalar("loss", loss, step, write_every_n_steps=1)
+            summary.scalar("global_step/sec", t, step)
 
             print("epoch = %d, step = %d, loss = %.3f (%.3f sec)" %
                   (epoch + 1, step, float(loss), t))
@@ -348,6 +355,10 @@ def main(args):
             if step >= params.train_steps:
                 if should_save:
                     save_checkpoint(step, epoch, model, optimizer, params)
+
+                if dist.get_rank() == 0:
+                    summary.close()
+
                 return
 
         epoch += 1
@@ -374,5 +385,9 @@ if __name__ == "__main__":
             parsed_args.url = url
 
         world_size = infer_gpu_num(parsed_args.parameters)
-        torch.multiprocessing.spawn(process_fn, args=(parsed_args,),
-                                    nprocs=world_size)
+
+        if world_size > 1:
+            torch.multiprocessing.spawn(process_fn, args=(parsed_args,),
+                                        nprocs=world_size)
+        else:
+            process_fn(0, parsed_args)
