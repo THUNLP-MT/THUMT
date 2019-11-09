@@ -264,6 +264,7 @@ class Transformer(modules.Module):
         state = self.encode(features, state)
         logits, _ = self.decode(features, state, "train")
         loss = self.criterion(logits, labels)
+        mask = mask.to(logits)
 
         return torch.sum(loss * mask) / torch.sum(mask)
 

@@ -35,24 +35,13 @@ class Optimizer(object):
         grad_vec = torch.nn.utils.parameters_to_vector(gradients)
 
         if compress:
-            grad_vec = grad_vec.half()
-
-        dist.all_reduce(grad_vec)
+            grad_vec_half = grad_vec.half()
+            dist.all_reduce(grad_vec_half)
+            grad_vec = grad_vec_half.to(grad_vec)
+        else:
+            dist.all_reduce(grad_vec)
 
         torch.nn.utils.vector_to_parameters(grad_vec, gradients)
-
-        """
-        for grad in gradients:
-            if grad is None:
-                continue
-
-            if compress and grad.dtype != torch.float16:
-                grad_fp16 = grad.half()
-                dist.all_reduce(grad_fp16)
-                grad.copy_(grad_fp16)
-            else:
-                dist.all_reduce(grad)
-        """
 
     def zero_gradients(self, gradients):
         for grad in gradients:
