@@ -162,7 +162,7 @@ class AdamOptimizer(Optimizer):
         return state
 
     def load_state_dict(self, state):
-        self._learning = state.get("learning_rate", self._learning_rate)
+        self._learning_rate = state.get("learning_rate", self._learning_rate)
         self._beta_1 = state.get("beta_1", self._beta_1)
         self._beta_2 = state.get("beta_2", self._beta_2)
         self._epsilon = state.get("epsilon", self._epsilon)

@@ -333,8 +333,8 @@ def main(args):
             gradients = optimizer.compute_gradients(loss,
                                                     list(model.parameters()))
             if params.clip_grad_norm:
-                torch.utils.clip_grad_norm_(model.parameters(),
-                                            params.clip_grad_norm)
+                torch.nn.utils.clip_grad_norm_(model.parameters(),
+                                               params.clip_grad_norm)
 
             optimizer.apply_gradients(zip(gradients,
                                           list(model.named_parameters())))
