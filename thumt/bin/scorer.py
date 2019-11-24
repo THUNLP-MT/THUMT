@@ -9,6 +9,7 @@ from __future__ import print_function
 import argparse
 import itertools
 import os
+import six
 
 import tensorflow as tf
 import thumt.data.vocab as vocabulary
@@ -18,7 +19,7 @@ import thumt.models as models
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Translate using existing NMT models",
-        usage="translator.py [<args>] [-h | --help]"
+        usage="scorer.py [<args>] [-h | --help]"
     )
 
     # input files
