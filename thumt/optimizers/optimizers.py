@@ -172,7 +172,7 @@ class AdamOptimizer(Optimizer):
         self._beta_1 = beta_1
         self._beta_2 = beta_2
         self._epsilon = epsilon
-        self._summary = True
+        self._summaries = True
         self._clipper = None
 
         if "summaries" in kwargs and not kwargs["summaries"]:
@@ -276,7 +276,7 @@ class AdadeltaOptimizer(Optimizer):
         self._learning_rate = learning_rate
         self._rho = rho
         self._epsilon = epsilon
-        self._summary = True
+        self._summaries = True
 
         if "summaries" in kwargs and not kwargs["summaries"]:
             self._summaries = False

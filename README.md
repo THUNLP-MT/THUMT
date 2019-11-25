@@ -16,17 +16,6 @@ This is the PyTorch implementation of THUMT.
 * Mixed precision training/decoding
 * TensorBoard for visualization
 
-## Benchmarks
-
-| Dataset     | Size | Steps | GPUs | Batch/GPU |   Mode   |  BLEU  |
-|-------------|------|-------|------|-----------|----------|--------|
-| WMT14 En-De | Base | 100k  |   4  |  2*4096   |   FP16   | 26.85  |
-| WMT14 En-De | Base | 100k  |   4  |  2*4096   |   FP32   | 26.91  |
-| WMT14 En-De | Base | 100k  |   8  |   4096    |   FP32   | 26.95  |
-| WMT14 En-De | Base |  86k  |   8  |  2*4096   |   FP32   | 27.21  |
-| WMT14 En-De | Big  | 300k  |   8  |   4096    |   FP16   | 28.71  |
-| WMT14 En-De | Big  |  20k  |  16  |  8*4096   | DistFP16 | 28.68  |
-
 ## Usage
 
 See the document of TensorFlow version THUMT.
@@ -39,3 +28,15 @@ See the document of TensorFlow version THUMT.
 * Add `--hparam_set` to select predefined hyper-parameters
 * Some features are not implemented (e.g. validation)
 * Model ensemble and multi-GPU decoding are currently not available
+
+## Benchmarks
+
+| Dataset   |   Model   | Size | Steps | GPUs | Batch/GPU |   Mode   |  BLEU  |
+|:---------:|:---------:|:----:|:-----:|:----:|:---------:|:--------:|:------:|
+|WMT14 En-De|Transformer| Base | 100k  |   4  |  2*4096   |   FP16   | 26.85  |
+|WMT14 En-De|Transformer| Base | 100k  |   4  |  2*4096   |   FP32   | 26.91  |
+|WMT14 En-De|Transformer| Base | 100k  |   8  |   4096    |   FP32   | 26.95  |
+|WMT14 En-De|Transformer| Base |  86k  |   8  |  2*4096   |   FP32   | 27.21  |
+|WMT14 En-De|Transformer| Big  | 300k  |   8  |   4096    |   FP16   | 28.71  |
+|WMT14 En-De|Transformer| Big  |  20k  |  16  |  8*4096   | DistFP16 | 28.68  |
+|WMT17 Zh-En|Transformer| Big  | 300k  |   8  |   4096    |   FP16   | 24.43  |

@@ -308,6 +308,7 @@ class RNMTPlus(modules.Module):
         loss = self.criterion(logits, labels)
         mask = mask.to(logits)
 
+        # Sentence-level loss
         return torch.mean(torch.sum(loss * mask, 1))
 
     def empty_state(self, batch_size, device):
