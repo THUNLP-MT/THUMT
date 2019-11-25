@@ -149,6 +149,7 @@ def main(args):
 
         if args.half:
             model = model.half()
+            torch.set_default_dtype(torch.half)
 
         model.eval()
         model.load_state_dict(

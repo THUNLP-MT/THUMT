@@ -14,6 +14,38 @@ import thumt.utils.summary as summary
 from thumt.optimizers.schedules import LearningRateSchedule
 
 
+def _save_summary(grads_and_vars):
+    total_norm = 0.0
+
+    for grad, var in grads_and_vars:
+        if grad is None:
+            continue
+
+        _, var = var
+        grad_norm = grad.data.norm()
+        total_norm += grad_norm ** 2
+        summary.histogram(var.tensor_name, var,
+                          utils.get_global_step())
+        summary.scalar("norm/" + var.tensor_name, var.norm(),
+                       utils.get_global_step())
+        summary.scalar("grad_norm/" + var.tensor_name, grad_norm,
+                       utils.get_global_step())
+
+        total_norm = total_norm ** 0.5
+        summary.scalar("grad_norm", total_norm, utils.get_global_step())
+
+    return total_norm
+
+
+def _compute_grad_norm(gradients):
+    total_norm = 0.0
+
+    for grad in gradients:
+        total_norm += grad.data.norm()
+
+    return total_norm
+
+
 class Optimizer(object):
 
     def __init__(self, name, **kwargs):
@@ -74,6 +106,63 @@ class Optimizer(object):
         raise NotImplementedError("Not implemented")
 
 
+class SGDOptimizer(Optimizer):
+
+    def __init__(self, learning_rate, summaries=True, name="SGD", **kwargs):
+        super(SGDOptimizer, self).__init__(name, **kwargs)
+        self._learning_Rate = learning_rate
+        self._summaries = summaries
+
+        if "clipper" in kwargs and kwargs["clipper"] is not None:
+            self._clipper = kwargs["clipper"]
+
+    def apply_gradients(self, grads_and_vars):
+        self._iterations += 1
+        lr = self._learning_rate
+        grads, var_list = list(zip(*grads_and_vars))
+
+        if self._summaries:
+            grad_norm = _save_summary(zip(grads, var_list))
+        else:
+            grad_norm = _compute_grad_norm(grads)
+
+        if self._clipper is not None:
+            reject, grads = self._clipper(grads, grad_norm)
+
+            if reject:
+                return
+
+        for grad, var in zip(grads, var_list):
+            if grad is None:
+                continue
+
+            # Convert if grad is not FP32
+            grad = grad.data.float()
+            _, var = var
+            step_size = lr
+
+            if var.dtype == torch.float32:
+                var.data.add_(-step_size, grad)
+            else:
+                fp32_var = var.data.float()
+                fp32_var.add_(-step_size, grad)
+                var.data.copy_(fp32_var)
+
+    def state_dict(self):
+        state = {
+            "iterations": self._iterations,
+        }
+
+        if not isinstance(self._learning_rate, LearningRateSchedule):
+            state["learning_rate"] = self._learning_rate
+
+        return state
+
+    def load_state_dict(self, state):
+        self._learning_rate = state.get("learning_rate", self._learning_rate)
+        self._iterations = state.get("iterations", self._iterations)
+
+
 class AdamOptimizer(Optimizer):
 
     def __init__(self, learning_rate=0.01, beta_1=0.9, beta_2=0.999,
@@ -84,9 +173,13 @@ class AdamOptimizer(Optimizer):
         self._beta_2 = beta_2
         self._epsilon = epsilon
         self._summary = True
+        self._clipper = None
 
-        if "summary" in kwargs and not kwargs["summary"]:
-            self._summary = False
+        if "summaries" in kwargs and not kwargs["summaries"]:
+            self._summaries = False
+
+        if "clipper" in kwargs and kwargs["clipper"] is not None:
+            self._clipper = kwargs["clipper"]
 
     def apply_gradients(self, grads_and_vars):
         self._iterations += 1
@@ -94,26 +187,26 @@ class AdamOptimizer(Optimizer):
         beta_1 = self._beta_1
         beta_2 = self._beta_2
         epsilon = self._epsilon
+        grads, var_list = list(zip(*grads_and_vars))
 
-        total_norm = 0.0
+        if self._summaries:
+            grad_norm = _save_summary(zip(grads, var_list))
+        else:
+            grad_norm = _compute_grad_norm(grads)
 
-        for grad, var in grads_and_vars:
+        if self._clipper is not None:
+            reject, grads = self._clipper(grads, grad_norm)
+
+            if reject:
+                return
+
+        for grad, var in zip(grads, var_list):
             if grad is None:
                 continue
 
             # Convert if grad is not FP32
             grad = grad.data.float()
             name, var = var
-
-            if self._summary:
-                grad_norm = grad.norm()
-                total_norm += grad_norm ** 2
-                summary.histogram(var.tensor_name, var,
-                                  utils.get_global_step())
-                summary.scalar("norm/" + var.tensor_name, var.norm(),
-                               utils.get_global_step())
-                summary.scalar("grad_norm/" + var.tensor_name, grad_norm,
-                               utils.get_global_step())
 
             if self._slots.get(name, None) is None:
                 self._slots[name] = {}
@@ -142,10 +235,6 @@ class AdamOptimizer(Optimizer):
                 fp32_var = var.data.float()
                 fp32_var.addcdiv_(-step_size, m, denom)
                 var.data.copy_(fp32_var)
-
-        if self._summary:
-            total_norm = total_norm ** 0.5
-            summary.scalar("grad_norm", total_norm, utils.get_global_step())
 
     def state_dict(self):
         state = {
@@ -179,6 +268,104 @@ class AdamOptimizer(Optimizer):
             self._slots[key]["v"].copy_(v)
 
 
+class AdadeltaOptimizer(Optimizer):
+
+    def __init__(self, learning_rate=0.001, rho=0.95, epsilon=1e-07,
+                 name="Adadelta", **kwargs):
+        super(AdadeltaOptimizer, self).__init__(name, **kwargs)
+        self._learning_rate = learning_rate
+        self._rho = rho
+        self._epsilon = epsilon
+        self._summary = True
+
+        if "summaries" in kwargs and not kwargs["summaries"]:
+            self._summaries = False
+
+        if "clipper" in kwargs and kwargs["clipper"] is not None:
+            self._clipper = kwargs["clipper"]
+
+    def apply_gradients(self, grads_and_vars):
+        self._iterations += 1
+        lr = self._learning_rate
+        rho = self._rho
+        epsilon = self._epsilon
+
+        grads, var_list = list(zip(*grads_and_vars))
+
+        if self._summaries:
+            grad_norm = _save_summary(zip(grads, var_list))
+        else:
+            grad_norm = _compute_grad_norm(grads)
+
+        if self._clipper is not None:
+            reject, grads = self._clipper(grads, grad_norm)
+
+            if reject:
+                return
+
+        for grad, var in zip(grads, var_list):
+            if grad is None:
+                continue
+
+            # Convert if grad is not FP32
+            grad = grad.data.float()
+            name, var = var
+
+            if self._slots.get(name, None) is None:
+                self._slots[name] = {}
+                self._slots[name]["m"] = torch.zeros_like(var.data,
+                                                          dtype=torch.float32)
+                self._slots[name]["v"] = torch.zeros_like(var.data,
+                                                          dtype=torch.float32)
+
+            square_avg = self._slots[name]["m"]
+            acc_delta = self._slots[name]["v"]
+
+            if isinstance(lr, LearningRateSchedule):
+                lr = lr(self._iterations)
+
+            square_avg.mul_(rho).addcmul_(1 - rho, grad, grad)
+            std = square_avg.add(epsilon).sqrt_()
+            delta = acc_delta.add(epsilon).sqrt_().div_(std).mul_(grad)
+            acc_delta.mul_(rho).addcmul_(1 - rho, delta, delta)
+
+            if var.dtype == torch.float32:
+                var.data.add_(-lr, delta)
+            else:
+                fp32_var = var.data.float()
+                fp32_var.add_(-lr, delta)
+                var.data.copy_(fp32_var)
+
+    def state_dict(self):
+        state = {
+            "rho": self._rho,
+            "epsilon": self._epsilon,
+            "iterations": self._iterations,
+            "slot": self._slots
+        }
+
+        if not isinstance(self._learning_rate, LearningRateSchedule):
+            state["learning_rate"] = self._learning_rate
+
+        return state
+
+    def load_state_dict(self, state):
+        self._learning_rate = state.get("learning_rate", self._learning_rate)
+        self._rho = state.get("rho", self._rho)
+        self._epsilon = state.get("epsilon", self._epsilon)
+        self._iterations = state.get("iterations", self._iterations)
+
+        slots = state.get("slots", {})
+        self._slots = {}
+
+        for key in slots:
+            m, v = slots[key]["m"], slots[key]["v"]
+            self._slots[key]["m"] = torch.zeros(m.shape, dtype=torch.float32)
+            self._slots[key]["v"] = torch.zeros(v.shape, dtype=torch.float32)
+            self._slots[key]["m"].copy_(m)
+            self._slots[key]["v"].copy_(v)
+
+
 class LossScalingOptimizer(Optimizer):
 
     def __init__(self, optimizer, scale=2.0**7, increment_period=2000,
@@ -189,10 +376,10 @@ class LossScalingOptimizer(Optimizer):
         self._increment_period = increment_period
         self._multiplier = multiplier
         self._num_good_steps = 0
-        self._summary = True
+        self._summaries = True
 
-        if "summary" in kwargs and not kwargs["summary"]:
-            self._summary = False
+        if "summaries" in kwargs and not kwargs["summaries"]:
+            self._summaries = False
 
     def _update_if_finite_grads(self):
         if self._num_good_steps + 1 > self._increment_period:
@@ -223,7 +410,7 @@ class LossScalingOptimizer(Optimizer):
         grads, var_list = list(zip(*grads_and_vars))
         new_grads = []
 
-        if self._summary:
+        if self._summaries:
             summary.scalar("optimizer/scale", self._scale,
                            utils.get_global_step())
 

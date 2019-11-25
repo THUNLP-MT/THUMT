@@ -13,7 +13,33 @@ from thumt.modules.module import Module
 from thumt.modules.affine import Affine
 
 
-class MultiHeadAttention(Module):
+class MultiHeadAttentionBase(Module):
+
+    def __init__(self, name="multihead_attention_base"):
+        super(MultiHeadAttentionBase, self).__init__(name=name)
+
+    @staticmethod
+    def split_heads(x, heads):
+        batch = x.shape[0]
+        length = x.shape[1]
+        channels = x.shape[2]
+
+        y = torch.reshape(x, [batch, length, heads, channels // heads])
+        return torch.transpose(y, 2, 1)
+
+    @staticmethod
+    def combine_heads(x):
+        batch = x.shape[0]
+        heads = x.shape[1]
+        length = x.shape[2]
+        channels = x.shape[3]
+
+        y = torch.transpose(x, 2, 1)
+
+        return torch.reshape(y, [batch, length, heads * channels])
+
+
+class MultiHeadAttention(MultiHeadAttentionBase):
 
     def __init__(self, hidden_size, num_heads, dropout=0.0,
                  name="multihead_attention"):
@@ -53,8 +79,8 @@ class MultiHeadAttention(Module):
             v = self.v_transform(query)
 
             if kv is not None:
-                k = torch.cat([kv[0].to(k), k], dim=1)
-                v = torch.cat([kv[1].to(v), v], dim=1)
+                k = torch.cat([kv[0], k], dim=1)
+                v = torch.cat([kv[1], v], dim=1)
 
         # split heads
         qh = self.split_heads(q, self.num_heads)
@@ -85,33 +111,99 @@ class MultiHeadAttention(Module):
 
         return output
 
-    def reset_parameters(self):
-        # 6 / (4 * hidden_size) -> 6 / (2 * hidden_size)
-        nn.init.xavier_uniform_(self.q_transform.weight, 2 ** -0.5)
-        nn.init.xavier_uniform_(self.k_transform.weight, 2 ** -0.5)
-        nn.init.xavier_uniform_(self.v_transform.weight, 2 ** -0.5)
-        nn.init.xavier_uniform_(self.o_transform.weight)
-        nn.init.constant_(self.q_transform.bias, 0.0)
-        nn.init.constant_(self.k_transform.bias, 0.0)
-        nn.init.constant_(self.v_transform.bias, 0.0)
-        nn.init.constant_(self.o_transform.bias, 0.0)
+    def reset_parameters(self, initializer="uniform_scaling", **kwargs):
+        if initializer == "uniform_scaling":
+            # 6 / (4 * hidden_size) -> 6 / (2 * hidden_size)
+            nn.init.xavier_uniform_(self.q_transform.weight, 2 ** -0.5)
+            nn.init.xavier_uniform_(self.k_transform.weight, 2 ** -0.5)
+            nn.init.xavier_uniform_(self.v_transform.weight, 2 ** -0.5)
+            nn.init.xavier_uniform_(self.o_transform.weight)
+            nn.init.constant_(self.q_transform.bias, 0.0)
+            nn.init.constant_(self.k_transform.bias, 0.0)
+            nn.init.constant_(self.v_transform.bias, 0.0)
+            nn.init.constant_(self.o_transform.bias, 0.0)
+        else:
+            raise ValueError("Unknown initializer %d" % initializer)
 
-    @staticmethod
-    def split_heads(x, heads):
-        batch = x.shape[0]
-        length = x.shape[1]
-        channels = x.shape[2]
 
-        y = torch.reshape(x, [batch, length, heads, channels // heads])
-        return torch.transpose(y, 2, 1)
+class MultiHeadAdditiveAttention(MultiHeadAttentionBase):
 
-    @staticmethod
-    def combine_heads(x):
-        batch = x.shape[0]
-        heads = x.shape[1]
-        length = x.shape[2]
-        channels = x.shape[3]
+    def __init__(self, q_size, k_size, hidden_size, num_heads, dropout=0.0,
+                 name="multihead_attention"):
+        super(MultiHeadAdditiveAttention, self).__init__(name=name)
 
-        y = torch.transpose(x, 2, 1)
+        self.num_heads = num_heads
+        self.hidden_size = hidden_size
+        self.dropout = dropout
 
-        return torch.reshape(y, [batch, length, heads * channels])
+        with utils.scope(name):
+            self.q_transform = Affine(q_size, hidden_size,
+                                      name="q_transform")
+            self.k_transform = Affine(k_size, hidden_size,
+                                      name="k_transform")
+            self.v_transform = Affine(hidden_size, num_heads,
+                                      name="v_transform")
+            self.o_transform = Affine(k_size, k_size,
+                                      name="o_transform")
+
+        self.reset_parameters()
+
+    def compute_cache(self, memory):
+        return self.k_transform(memory)
+
+    def forward(self, query, bias, memory, cache=None):
+        q = self.q_transform(query)
+
+        if cache is None:
+            k = self.k_transform(memory)
+        else:
+            k = cache
+
+        # split heads
+        qh = self.split_heads(q, self.num_heads)
+        kh = self.split_heads(k, self.num_heads)
+        # q: [batch, 1, hidden_size]
+        # k: [batch, length, hidden_size]
+        logits = self.v_transform(torch.tanh(q + k))
+        # [batch, length, num_heads]
+        logits = torch.transpose(logits, 1, 2)
+        # [batch, num_heads, 1, length]
+        logits = torch.unsqueeze(logits, 2)
+
+        if bias is not None:
+            logits = logits + bias
+
+        weights = torch.nn.functional.dropout(torch.softmax(logits, dim=-1),
+                                              p=self.dropout,
+                                              training=self.training)
+
+        vh = self.split_heads(memory, self.num_heads)
+        x = torch.matmul(weights, vh)
+
+        # combine heads
+        output = self.o_transform(self.combine_heads(x))
+
+        return output
+
+    def reset_parameters(self, initializer="uniform_scaling", **kwargs):
+        if initializer == "uniform_scaling":
+            # 6 / (4 * hidden_size) -> 6 / (2 * hidden_size)
+            nn.init.xavier_uniform_(self.q_transform.weight, 2 ** -0.5)
+            nn.init.xavier_uniform_(self.k_transform.weight, 2 ** -0.5)
+            nn.init.xavier_uniform_(self.v_transform.weight, 2 ** -0.5)
+            nn.init.xavier_uniform_(self.o_transform.weight)
+            nn.init.constant_(self.q_transform.bias, 0.0)
+            nn.init.constant_(self.k_transform.bias, 0.0)
+            nn.init.constant_(self.v_transform.bias, 0.0)
+            nn.init.constant_(self.o_transform.bias, 0.0)
+        elif initializer == "uniform":
+            nn.init.uniform_(self.q_transform.weight, -0.04, 0.04)
+            nn.init.uniform_(self.k_transform.weight, -0.04, 0.04)
+            nn.init.uniform_(self.v_transform.weight, -0.04, 0.04)
+            nn.init.uniform_(self.o_transform.weight, -0.04, 0.04)
+            nn.init.uniform_(self.q_transform.bias, -0.04, 0.04)
+            nn.init.uniform_(self.k_transform.bias, -0.04, 0.04)
+            nn.init.uniform_(self.v_transform.bias, -0.04, 0.04)
+            nn.init.uniform_(self.o_transform.bias, -0.04, 0.04)
+        else:
+            raise ValueError("Unknown initializer %d" % initializer)

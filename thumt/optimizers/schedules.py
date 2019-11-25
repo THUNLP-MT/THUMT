@@ -5,7 +5,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-
 import thumt.utils as utils
 import thumt.utils.summary as summary
 
@@ -57,4 +56,90 @@ class LinearWarmupRsqrtDecay(LearningRateSchedule):
             "learning_rate": self._maximum_learning_rate,
             "initial_learning_rate": self._initial_learning_rate,
             "warmup_steps": self._warmup_steps
+        }
+
+
+class PiecewiseConstantDecay(LearningRateSchedule):
+
+    def __init__(self, boundaries, values, summary=True, name=None):
+        super(PiecewiseConstantDecay, self).__init__()
+
+        if len(boundaries) != len(values) - 1:
+            raise ValueError("The length of boundaries should be 1"
+                             " less than the length of values")
+
+        self._boundaries = boundaries
+        self._values = values
+        self._summary = summary
+
+    def __call__(self, step):
+        boundaries = self._boundaries
+        values = self._values
+        learning_rate = values[0]
+
+        if step <= boundaries[0]:
+            learning_rate = values[0]
+        elif step > boundaries[-1]:
+            learning_rate = values[-1]
+        else:
+            for low, high, v in zip(boundaries[:-1], boundaries[1:],
+                                    values[1:-1]):
+
+                if step > low and step <= high:
+                    learning_rate = v
+                    break
+
+        if self._summary:
+            summary.scalar("learning_rate", learning_rate,
+                           utils.get_global_step())
+
+        return learning_rate
+
+    def get_config(self):
+        return {
+            "boundaries": self._boundaries,
+            "values": self._values,
+        }
+
+
+class LinearExponentialDecay(LearningRateSchedule):
+
+    def __init__(self, learning_rate, warmup_steps, start_decay_step,
+                 end_decay_step, n, summary=True):
+        super(LinearExponentialDecay, self).__init__()
+
+        self._learning_rate = learning_rate
+        self._warmup_steps = warmup_steps
+        self._start_decay_step = start_decay_step
+        self._end_decay_step = end_decay_step
+        self._n = n
+        self._summary = summary
+
+    def __call__(self, step):
+        # See reference: The Best of Both Worlds: Combining Recent Advances
+        # in Neural Machine Translation
+        n = self._n
+        p = self._warmup_steps / n
+        s = n * self._start_decay_step
+        e = n * self._end_decay_step
+
+        learning_rate = self._learning_rate
+
+        learning_rate *= min(
+            1.0 + (n - 1) * step / float(n * p),
+            n,
+            n * ((2 * n) ** (float(s - n * step) / float(e - s))))
+
+        if self._summary:
+            summary.scalar("learning_rate", learning_rate,
+                           utils.get_global_step())
+
+        return learning_rate
+
+    def get_config(self):
+        return {
+            "learning_rate": self._learning_rate,
+            "warmup_steps": self._warmup_steps,
+            "start_decay_step": self._start_decay_step,
+            "end_decay_step": self._end_decay_step,
         }

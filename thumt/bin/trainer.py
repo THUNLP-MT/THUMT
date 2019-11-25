@@ -93,6 +93,9 @@ def default_params():
         adam_beta1=0.9,
         adam_beta2=0.999,
         adam_epsilon=1e-8,
+        adadelta_rho=0.95,
+        adadelta_epsilon=1e-7,
+        clipping="global_norm",
         clip_grad_norm=5.0,
         learning_rate=1.0,
         learning_rate_schedule="linear_warmup_rsqrt_decay",
@@ -242,6 +245,37 @@ def broadcast(model):
         dist.broadcast(var.data, 0)
 
 
+def get_learning_rate_schedule(params):
+    if params.learning_rate_schedule == "linear_warmup_rsqrt_decay":
+        schedule = optimizers.LinearWarmupRsqrtDecay(params.learning_rate,
+                                                     params.warmup_steps)
+    elif params.learning_rate_schedule == "piecewise_constant_decay":
+        schedule = optimizers.PiecewiseConstantDecay(
+            params.learning_rate_boundaries, params.learning_rate_values)
+    elif params.learning_rate_schedule == "linear_exponential_decay":
+        schedule = optimizers.LinearExponentialDecay(params.learning_rate,
+            params.warmup_steps, params.start_decay_step,
+            params.end_decay_step,
+            dist.get_world_size() * params.update_cycle)
+    else:
+        raise ValueError("Unknown schedule %s" % params.learning_rate_schedule)
+
+    return schedule
+
+
+def get_clipper(params):
+    if params.clipping.lower() == "none":
+        clipper = None
+    elif params.clipping.lower() == "adaptive":
+        clipper = optimizers.adaptive_clipper(0.95)
+    elif params.clipping.lower() == "global_norm":
+        clipper = optimizers.global_norm_clipper(params.clip_grad_norm)
+    else:
+        raise ValueError("Unknown clipper %s" % params.clipping)
+
+    return clipper
+
+
 def main(args):
     model_cls = models.get_model(args.model)
 
@@ -273,17 +307,28 @@ def main(args):
 
     if args.half:
         model = model.half()
+        torch.set_default_dtype(torch.half)
+
+    model.train()
 
     # Init tensorboard
     summary.init(params.output, params.save_summary)
 
-    model.train()
-    schedule = optimizers.LinearWarmupRsqrtDecay(params.learning_rate,
-                                                 params.warmup_steps)
-    optimizer = optimizers.AdamOptimizer(learning_rate=schedule,
-                                         beta_1=params.adam_beta1,
-                                         beta_2=params.adam_beta2,
-                                         epsilon=params.adam_epsilon)
+    schedule = get_learning_rate_schedule(params)
+    clipper = get_clipper(params)
+
+    if params.optimizer.lower() == "adam":
+        optimizer = optimizers.AdamOptimizer(learning_rate=schedule,
+                                             beta_1=params.adam_beta1,
+                                             beta_2=params.adam_beta2,
+                                             epsilon=params.adam_epsilon,
+                                             clipper=clipper)
+    elif params.optimizer.lower() == "adadelta":
+        optimizer = optimizers.AdadeltaOptimizer(
+            learning_rate=schedule, rho=params.adadelta_rho,
+            epsilon=params.adadelta_epsilon, clipper=clipper)
+    else:
+        raise ValueError("Unknown optimizer %s" % params.optimizer)
 
     if args.half:
         optimizer = optimizers.LossScalingOptimizer(optimizer)
@@ -332,10 +377,6 @@ def main(args):
             loss = train_fn(features)
             gradients = optimizer.compute_gradients(loss,
                                                     list(model.parameters()))
-            if params.clip_grad_norm:
-                torch.nn.utils.clip_grad_norm_(model.parameters(),
-                                               params.clip_grad_norm)
-
             optimizer.apply_gradients(zip(gradients,
                                           list(model.named_parameters())))
 
