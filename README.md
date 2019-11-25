@@ -34,11 +34,11 @@ THUMT has currently three main implementations:
 
 The following table summarizes the features of three implementations:
 
-| Implementation | Model | Criterion | Optimizer | LRP |
-| :------------: | :---: | :--------------: | :--------------: | :----------------: |
-| Theano       |  RNNsearch | MLE, MRT, SST | SGD, AdaDelta, Adam | RNNsearch |
-| TensorFlow   |  Seq2Seq, RNNsearch, Transformer | MLE| Adam | RNNsearch, Transformer |
-| PyTorch | Transformer | MLE | Adam | N.A. |
+| Implementation | Model | Criterion | Optimizer | LRP | Additional Features |
+| :------------: | :---: | :--------------: | :--------------: | :----------------: | :---------------: |
+| Theano       |  RNNsearch | MLE, MRT, SST | SGD, AdaDelta, Adam | RNNsearch | N.A. |
+| TensorFlow   |  Seq2Seq, RNNsearch, Transformer | MLE| Adam | RNNsearch, Transformer | Distributed Training, Mixed Precision Training, Gradient Aggregation, Model Ensemble |
+| PyTorch | Transformer | MLE | SGD, Adadelta, Adam | N.A. | Distributed Training, Mixed Precision Training, Gradient Aggregation
 
 We recommend using [THUMT-TensorFlow](https://github.com/thumt/THUMT), which delivers better translation performance than [THUMT-Theano](https://github.com/thumt/THUMT/tree/theano). We will keep adding new features to [THUMT-TensorFlow](https://github.com/thumt/THUMT).
 
