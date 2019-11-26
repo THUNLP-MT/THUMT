@@ -11,6 +11,7 @@ import os
 
 import tensorflow as tf
 import thumt.utils.bleu as bleu
+import thumt.utils.parallel as parallel
 
 
 def _get_saver():
@@ -130,17 +131,47 @@ def _add_to_record(records, record, max_to_keep):
     return added, removed, records
 
 
-def _evaluate(eval_fn, input_fn, decode_fn, path, config):
+def _shard_features(features, placeholders, predictions):
+    num_shards = len(placeholders)
+    feed_dict = {}
+    n = 0
+
+    for name in features:
+        feat = features[name]
+        batch = feat.shape[0]
+        shard_size = (batch + num_shards - 1) // num_shards
+
+        for i in range(num_shards):
+            shard_feat = feat[i * shard_size:(i + 1) * shard_size]
+
+            if shard_feat.shape[0] != 0:
+                feed_dict[placeholders[i][name]] = shard_feat
+                n = i + 1
+            else:
+                break
+
+    if isinstance(predictions, (list, tuple)):
+        predictions = predictions[:n]
+
+    return predictions, feed_dict
+
+
+def _evaluate(eval_fn, input_fn, decode_fn, path, config, device_list):
     graph = tf.Graph()
     with graph.as_default():
         features = input_fn()
         refs = features["references"]
-        placeholders = {
-            "source": tf.placeholder(tf.int32, [None, None], "source"),
-            "source_length": tf.placeholder(tf.int32, [None], "source_length")
-        }
-        predictions = eval_fn(placeholders)
-        predictions = predictions[0][:, 0, :]
+        placeholders = []
+        for i in range(len(device_list)):
+            placeholders.append({
+                "source": tf.placeholder(tf.int32, [None, None],
+                                         "source_%d" % i),
+                "source_length": tf.placeholder(tf.int32, [None],
+                                                "source_length_%d" % i)
+            })
+        predictions = parallel.data_parallelism(
+            device_list, eval_fn, placeholders)
+        predictions = [pred[0][:, 0, :] for pred in predictions]
 
         all_refs = [[] for _ in range(len(refs))]
         all_outputs = []
@@ -153,16 +184,20 @@ def _evaluate(eval_fn, input_fn, decode_fn, path, config):
         with tf.train.MonitoredSession(session_creator=sess_creator) as sess:
             while not sess.should_stop():
                 feats = sess.run(features)
-                outputs = sess.run(predictions, feed_dict={
-                    placeholders["source"]: feats["source"],
-                    placeholders["source_length"]: feats["source_length"]
-                })
-                # shape: [batch, len]
-                outputs = outputs.tolist()
+                inp_feats = {
+                    "source": feats["source"],
+                    "source_length": feats["source_length"]
+                }
+                op, feed_dict = _shard_features(inp_feats, placeholders,
+                                                predictions)
+                # A list of numpy array with shape: [batch, len]
+                outputs = sess.run(op, feed_dict=feed_dict)
+
+                for shard in outputs:
+                    all_outputs.extend(shard.tolist())
+
                 # shape: ([batch, len], ..., [batch, len])
                 references = [item.tolist() for item in feats["references"]]
-
-                all_outputs.extend(outputs)
 
                 for i in range(len(refs)):
                     all_refs[i].extend(references[i])
@@ -184,7 +219,7 @@ class EvaluationHook(tf.train.SessionRunHook):
     """
 
     def __init__(self, eval_fn, eval_input_fn, eval_decode_fn, base_dir,
-                 session_config, max_to_keep=5, eval_secs=None,
+                 session_config, device_list=None, max_to_keep=5, eval_secs=None,
                  eval_steps=None, metric="BLEU"):
         """ Initializes a `EvaluationHook`.
         :param eval_fn: A function with signature (feature)
@@ -206,6 +241,10 @@ class EvaluationHook(tf.train.SessionRunHook):
 
         self._base_dir = base_dir.rstrip("/")
         self._session_config = session_config
+        if isinstance(device_list, list):
+            self._device_list = device_list
+        else:
+            self._device_list = [0]
         self._save_path = os.path.join(base_dir, "eval")
         self._record_name = os.path.join(self._save_path, "record")
         self._log_name = os.path.join(self._save_path, "log")
@@ -267,7 +306,8 @@ class EvaluationHook(tf.train.SessionRunHook):
                 score = _evaluate(self._eval_fn, self._eval_input_fn,
                                   self._eval_decode_fn,
                                   self._base_dir,
-                                  self._session_config)
+                                  self._session_config,
+                                  self._device_list)
                 tf.logging.info("%s at step %d: %f" %
                                 (self._metric, global_step, score))
 
@@ -320,7 +360,8 @@ class EvaluationHook(tf.train.SessionRunHook):
             score = _evaluate(self._eval_fn, self._eval_input_fn,
                               self._eval_decode_fn,
                               self._base_dir,
-                              self._session_config)
+                              self._session_config,
+                              self._device_list)
             tf.logging.info("%s at step %d: %f" %
                             (self._metric, global_step, score))
 

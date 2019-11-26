@@ -465,7 +465,7 @@ def main(args):
                         save_secs=params.save_checkpoint_secs or None,
                         save_steps=params.save_checkpoint_steps or None,
                         saver=saver),
-                step=params.update_cycle)
+                    step=params.update_cycle)
             )
 
             if eval_input_fn is not None:
@@ -479,7 +479,8 @@ def main(args):
                             lambda x: decode_target_ids(x, params),
                             params.output,
                             session_config(params),
-                            params.keep_top_checkpoint_max,
+                            device_list=params.device_list,
+                            max_to_keep=params.keep_top_checkpoint_max,
                             eval_secs=params.eval_secs,
                             eval_steps=params.eval_steps
                         ),

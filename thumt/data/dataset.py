@@ -8,7 +8,6 @@ from __future__ import print_function
 import math
 import operator
 
-import numpy as np
 import tensorflow as tf
 import thumt.utils.distribute as distribute
 
@@ -247,7 +246,7 @@ def get_evaluation_input(inputs, params):
         )
 
         dataset = dataset.padded_batch(
-            params.eval_batch_size,
+            params.eval_batch_size * len(params.device_list),
             {
                 "source": [tf.Dimension(None)],
                 "source_length": [],
@@ -363,7 +362,7 @@ def get_relevance_input(inputs, outputs, params):
 
     # Split string
     dataset_o = dataset_o.map(lambda x: tf.string_split([x]).values,
-                          num_parallel_calls=params.num_threads)
+                              num_parallel_calls=params.num_threads)
 
     # Append <eos>
     dataset_o = dataset_o.map(
