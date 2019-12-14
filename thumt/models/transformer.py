@@ -18,24 +18,33 @@ class AttentionSubLayer(modules.Module):
     def __init__(self, params, name="attention"):
         super(AttentionSubLayer, self).__init__(name=name)
 
+        self.dropout = params.residual_dropout
+        self.normalization = params.normalization
+
         with utils.scope(name):
             self.attention = modules.MultiHeadAttention(
                 params.hidden_size, params.num_heads, params.attention_dropout)
             self.layer_norm = modules.LayerNorm(params.hidden_size)
 
-        self.dropout = params.residual_dropout
-
     def forward(self, x, bias, memory=None, state=None):
+        if self.normalization == "before":
+            y = self.layer_norm(x)
+        else:
+            y = x
+
         if self.training or state is None:
-            y = self.attention(x, bias, memory, None)
+            y = self.attention(y, bias, memory, None)
         else:
             kv = [state["k"], state["v"]]
-            y, k, v = self.attention(x, bias, memory, kv)
+            y, k, v = self.attention(y, bias, memory, kv)
             state["k"], state["v"] = k, v
 
         y = nn.functional.dropout(y, self.dropout, self.training)
 
-        return self.layer_norm(x + y)
+        if self.normalization == "before":
+            return x + y
+        else:
+            return self.layer_norm(x + y)
 
 
 class FFNSubLayer(modules.Module):
@@ -43,18 +52,28 @@ class FFNSubLayer(modules.Module):
     def __init__(self, params, dtype=None, name="ffn_layer"):
         super(FFNSubLayer, self).__init__(name=name)
 
+        self.dropout = params.residual_dropout
+        self.normalization = params.normalization
+
         with utils.scope(name):
             self.ffn_layer = modules.FeedForward(params.hidden_size,
                                                  params.filter_size,
                                                  dropout=params.relu_dropout)
             self.layer_norm = modules.LayerNorm(params.hidden_size)
-        self.dropout = params.residual_dropout
 
     def forward(self, x):
-        y = self.ffn_layer(x)
+        if self.normalization == "before":
+            y = self.layer_norm(x)
+        else:
+            y = x
+
+        y = self.ffn_layer(y)
         y = nn.functional.dropout(y, self.dropout, self.training)
 
-        return self.layer_norm(x + y)
+        if self.normalization == "before":
+            return x + y
+        else:
+            return self.layer_norm(x + y)
 
 
 class TransformerEncoderLayer(modules.Module):
@@ -96,14 +115,24 @@ class TransformerEncoder(modules.Module):
     def __init__(self, params, name="encoder"):
         super(TransformerEncoder, self).__init__(name=name)
 
+        self.normalization = params.normalization
+
         with utils.scope(name):
             self.layers = nn.ModuleList([
                 TransformerEncoderLayer(params, name="layer_%d" % i)
                 for i in range(params.num_encoder_layers)])
+            if self.normalization == "before":
+                self.layer_norm = modules.LayerNorm(params.hidden_size)
+            else:
+                self.layer_norm = None
 
     def forward(self, x, bias):
         for layer in self.layers:
             x = layer(x, bias)
+
+        if self.normalization == "before":
+            x = self.layer_norm(x)
+
         return x
 
 
@@ -112,10 +141,17 @@ class TransformerDecoder(modules.Module):
     def __init__(self, params, name="decoder"):
         super(TransformerDecoder, self).__init__(name=name)
 
+        self.normalization = params.normalization
+
         with utils.scope(name):
             self.layers = nn.ModuleList([
                 TransformerDecoderLayer(params, name="layer_%d" % i)
                 for i in range(params.num_decoder_layers)])
+
+            if self.normalization == "before":
+                self.layer_norm = modules.LayerNorm(params.hidden_size)
+            else:
+                self.layer_norm = None
 
     def forward(self, x, attn_bias, encdec_bias, memory, state=None):
         for i, layer in enumerate(self.layers):
@@ -124,6 +160,10 @@ class TransformerDecoder(modules.Module):
                           state["decoder"]["layer_%d" % i])
             else:
                 x = layer(x, attn_bias, encdec_bias, memory, None)
+
+        if self.normalization == "before":
+            x = self.layer_norm(x)
+
         return x
 
 
@@ -309,9 +349,11 @@ class Transformer(modules.Module):
             residual_dropout=0.1,
             relu_dropout=0.0,
             label_smoothing=0.1,
+            normalization="after",
             shared_embedding_and_softmax_weights=False,
             shared_source_target_embedding=False,
             # Override default parameters
+            warmup_steps=4000,
             train_steps=100000,
             learning_rate=7e-4,
             learning_rate_schedule="linear_warmup_rsqrt_decay",
@@ -322,6 +364,18 @@ class Transformer(modules.Module):
             adam_epsilon=1e-9,
             clip_grad_norm=0.0
         )
+
+        return params
+
+    @staticmethod
+    def base_params_v2():
+        params = Transformer.base_params()
+        params.attention_dropout = 0.1
+        params.relu_dropout = 0.1
+        params.learning_rate = 12e-4
+        params.warmup_step = 8000
+        params.normalization = "before"
+        params.adam_beta2 = 0.997
 
         return params
 
@@ -338,10 +392,26 @@ class Transformer(modules.Module):
         return params
 
     @staticmethod
+    def big_params_v2():
+        params = Transformer.base_params_v2()
+        params.hidden_size = 1024
+        params.filter_size = 4096
+        params.num_heads = 16
+        params.residual_dropout = 0.3
+        params.learning_rate = 7e-4
+        params.train_steps = 300000
+
+        return params
+
+    @staticmethod
     def default_params(name=None):
         if name == "base":
             return Transformer.base_params()
+        elif name == "base_v2":
+            return Transformer.base_params_v2()
         elif name == "big":
             return Transformer.big_params()
+        elif name == "big_v2":
+            return Transformer.big_params_v2()
         else:
             return Transformer.base_params()

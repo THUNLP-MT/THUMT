@@ -9,10 +9,10 @@ import math
 
 
 def global_norm_clipper(value):
-    def clip_fn(gradients, grad_norm=None):
+    def clip_fn(gradients, grad_norm):
         norm = grad_norm.tolist()
 
-        if norm < value:
+        if not float(value) or norm < value:
             return False, gradients
 
         scale = value / norm

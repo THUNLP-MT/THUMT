@@ -256,7 +256,7 @@ def get_learning_rate_schedule(params):
         schedule = optimizers.LinearExponentialDecay(params.learning_rate,
             params.warmup_steps, params.start_decay_step,
             params.end_decay_step,
-            dist.get_world_size() * params.update_cycle)
+            dist.get_world_size())
     else:
         raise ValueError("Unknown schedule %s" % params.learning_rate_schedule)
 
@@ -291,11 +291,13 @@ def main(args):
     if args.distributed:
         dist.init_process_group("nccl")
         torch.cuda.set_device(args.local_rank)
+        torch.set_default_tensor_type(torch.cuda.FloatTensor)
     else:
         dist.init_process_group("nccl", init_method=args.url,
                                 rank=args.local_rank,
                                 world_size=len(params.device_list))
         torch.cuda.set_device(params.device_list[args.local_rank])
+        torch.set_default_tensor_type(torch.cuda.FloatTensor)
 
     # Export parameters
     if dist.get_rank() == 0:
@@ -308,6 +310,7 @@ def main(args):
     if args.half:
         model = model.half()
         torch.set_default_dtype(torch.half)
+        torch.set_default_tensor_type(torch.cuda.HalfTensor)
 
     model.train()
 

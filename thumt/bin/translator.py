@@ -142,6 +142,7 @@ def main(args):
     params = import_params(args.checkpoint, args.model, params)
     params = override_params(params, args)
     torch.cuda.set_device(params.device)
+    torch.set_default_tensor_type(torch.cuda.FloatTensor)
 
     # Create model
     with torch.no_grad():
@@ -150,6 +151,7 @@ def main(args):
         if args.half:
             model = model.half()
             torch.set_default_dtype(torch.half)
+            torch.set_default_tensor_type(torch.cuda.HalfTensor)
 
         model.eval()
         model.load_state_dict(

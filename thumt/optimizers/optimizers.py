@@ -257,11 +257,12 @@ class AdamOptimizer(Optimizer):
         self._epsilon = state.get("epsilon", self._epsilon)
         self._iterations = state.get("iterations", self._iterations)
 
-        slots = state.get("slots", {})
+        slots = state.get("slot", {})
         self._slots = {}
 
         for key in slots:
             m, v = slots[key]["m"], slots[key]["v"]
+            self._slots[key] = {}
             self._slots[key]["m"] = torch.zeros(m.shape, dtype=torch.float32)
             self._slots[key]["v"] = torch.zeros(v.shape, dtype=torch.float32)
             self._slots[key]["m"].copy_(m)
@@ -355,11 +356,12 @@ class AdadeltaOptimizer(Optimizer):
         self._epsilon = state.get("epsilon", self._epsilon)
         self._iterations = state.get("iterations", self._iterations)
 
-        slots = state.get("slots", {})
+        slots = state.get("slot", {})
         self._slots = {}
 
         for key in slots:
             m, v = slots[key]["m"], slots[key]["v"]
+            self._slots[key] = {}
             self._slots[key]["m"] = torch.zeros(m.shape, dtype=torch.float32)
             self._slots[key]["v"] = torch.zeros(v.shape, dtype=torch.float32)
             self._slots[key]["m"].copy_(m)

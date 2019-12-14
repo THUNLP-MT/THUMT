@@ -6,4 +6,4 @@ from thumt.modules.feed_forward import FeedForward
 from thumt.modules.layer_norm import LayerNorm
 from thumt.modules.losses import SmoothedCrossEntropyLoss
 from thumt.modules.module import Module
-from thumt.modules.lstm import LSTMCell
+from thumt.modules.recurrent import LSTMCell
