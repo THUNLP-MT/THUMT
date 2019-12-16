@@ -165,6 +165,8 @@ def build_input_fn(filenames, mode, params):
 
     def infer_input_fn():
         dataset = tf.data.TextLineDataset(filenames)
+        dataset = dataset.shard(torch.distributed.get_world_size(),
+                                torch.distributed.get_rank())
 
         dataset = dataset.map(
             lambda x: tf.strings.split([x]).values,

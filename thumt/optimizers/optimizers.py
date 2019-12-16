@@ -31,19 +31,19 @@ def _save_summary(grads_and_vars):
         summary.scalar("grad_norm/" + var.tensor_name, grad_norm,
                        utils.get_global_step())
 
-        total_norm = total_norm ** 0.5
-        summary.scalar("grad_norm", total_norm, utils.get_global_step())
+    total_norm = total_norm ** 0.5
+    summary.scalar("grad_norm", total_norm, utils.get_global_step())
 
-    return total_norm
+    return float(total_norm)
 
 
 def _compute_grad_norm(gradients):
     total_norm = 0.0
 
     for grad in gradients:
-        total_norm += grad.data.norm()
+        total_norm += float(grad.data.norm() ** 2)
 
-    return total_norm
+    return float(total_norm ** 0.5)
 
 
 class Optimizer(object):

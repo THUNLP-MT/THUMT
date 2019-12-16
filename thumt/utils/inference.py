@@ -10,6 +10,7 @@ import torch
 import tensorflow as tf
 
 from collections import namedtuple
+from thumt.utils.nest import map_structure
 
 
 def _merge_first_two_dims(tensor):
@@ -80,21 +81,19 @@ def _get_inference_fn(model_fns, features):
 
 
 def _beam_search_step(time, func, state, batch_size, beam_size, alpha,
-                      pad_id, eos_id):
+                      pad_id, eos_id, max_length, inf=-1e9):
     # Compute log probabilities
     seqs, log_probs = state.inputs[:2]
     flat_seqs = _merge_first_two_dims(seqs)
-    flat_state = tf.nest.map_structure(lambda x: _merge_first_two_dims(x),
-                                       state.state)
+    flat_state = map_structure(lambda x: _merge_first_two_dims(x), state.state)
     step_log_probs, next_state = func(flat_seqs, flat_state)
     step_log_probs = _split_first_two_dims(step_log_probs, batch_size,
                                            beam_size)
-    next_state = tf.nest.map_structure(
+    next_state = map_structure(
         lambda x: _split_first_two_dims(x, batch_size, beam_size), next_state)
     curr_log_probs = torch.unsqueeze(log_probs, 2) + step_log_probs
 
     # Apply length penalty
-    # time or time + 1 ?
     length_penalty = ((5.0 + float(time + 1)) / 6.0) ** alpha
     curr_scores = curr_log_probs / length_penalty
     vocab_size = curr_scores.shape[-1]
@@ -117,7 +116,7 @@ def _beam_search_step(time, func, state, batch_size, beam_size, alpha,
     # Suppress finished sequences
     flags = torch.eq(symbol_indices, eos_id).to(torch.bool)
     # [batch, 2 * beam_size]
-    alive_scores = top_scores + flags.to(torch.float32) * -1e9
+    alive_scores = top_scores + flags.to(torch.float32) * inf
     # [batch, beam_size]
     alive_scores, alive_indices = torch.topk(alive_scores, beam_size)
     alive_symbols = _gather_2d(symbol_indices, alive_indices)
@@ -125,15 +124,19 @@ def _beam_search_step(time, func, state, batch_size, beam_size, alpha,
     alive_seqs = _gather_2d(seqs, alive_indices)
     # [batch_size, beam_size, time + 1]
     alive_seqs = torch.cat([alive_seqs, torch.unsqueeze(alive_symbols, 2)], 2)
-    alive_state = tf.nest.map_structure(
+    alive_state = map_structure(
         lambda x: _gather_2d(x, alive_indices),
         next_state)
     alive_log_probs = alive_scores * length_penalty
+    # Check length constraint
+    length_flags = torch.le(max_length, time + 1).float()
+    alive_log_probs = alive_log_probs + length_flags * inf
+    alive_scores = alive_scores + length_flags * inf
 
     # Select finished sequences
     prev_fin_flags, prev_fin_seqs, prev_fin_scores = state.finish
     # [batch, 2 * beam_size]
-    step_fin_scores = top_scores + (1.0 - flags.to(torch.float32)) * -1e9
+    step_fin_scores = top_scores + (1.0 - flags.to(torch.float32)) * inf
     # [batch, 3 * beam_size]
     fin_flags = torch.cat([prev_fin_flags, flags], dim=1)
     fin_scores = torch.cat([prev_fin_scores, step_fin_scores], dim=1)
@@ -182,6 +185,12 @@ def beam_search(models, features, params):
         states.append(model.encode(features, state))
         funcs.append(model.decode)
 
+    # For source sequence length
+    max_length = features["source_mask"].sum(1).long() + decode_length
+    max_step = max_length.max()
+    # [batch, beam_size]
+    max_length = torch.unsqueeze(max_length, 1).repeat([1, beam_size])
+
     # Expand the inputs
     # [batch, length] => [batch * beam_size, length]
     features["source"] = torch.unsqueeze(features["source"], 1)
@@ -193,12 +202,9 @@ def beam_search(models, features, params):
     features["source_mask"] = torch.reshape(features["source_mask"],
                                        [batch_size * beam_size, seq_length])
 
-    # For source sequence length
-    max_step = seq_length + decode_length
-
     decoding_fn = _get_inference_fn(funcs, features)
 
-    states = tf.nest.map_structure(
+    states = map_structure(
         lambda x: _tile_to_beam_size(x, beam_size),
         states)
 
@@ -224,7 +230,7 @@ def beam_search(models, features, params):
 
     for time in range(max_step):
         state = _beam_search_step(time, decoding_fn, state, batch_size,
-                                  beam_size, alpha, pad_id, eos_id)
+                                  beam_size, alpha, pad_id, eos_id, max_length)
         max_penalty = ((5.0 + max_step) / 6.0) ** alpha
         best_alive_score = torch.max(state.inputs[1][:, 0] / max_penalty)
         worst_finished_score = torch.min(state.finish[2])

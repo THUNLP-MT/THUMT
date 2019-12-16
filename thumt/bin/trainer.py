@@ -33,16 +33,14 @@ def parse_args(args=None):
     # input files
     parser.add_argument("--input", type=str, nargs=2,
                         help="Path of source and target corpus")
-    parser.add_argument("--record", type=str,
-                        help="Path to tf.Record data")
     parser.add_argument("--output", type=str, default="train",
                         help="Path to saved models")
     parser.add_argument("--vocabulary", type=str, nargs=2,
                         help="Path of source and target vocabulary")
     parser.add_argument("--validation", type=str,
                         help="Path of validation file")
-    parser.add_argument("--references", type=str, nargs="+",
-                        help="Path of reference files")
+    parser.add_argument("--references", type=str,
+                        help="Pattern of reference files")
     parser.add_argument("--checkpoint", type=str,
                         help="Path to pre-trained checkpoint")
     parser.add_argument("--distributed", action="store_true",
@@ -111,13 +109,13 @@ def default_params():
         # Validation
         eval_steps=2000,
         eval_secs=0,
-        eval_batch_size=32,
         top_beams=1,
         beam_size=4,
+        decode_batch_size=32,
         decode_alpha=0.6,
         decode_length=50,
         validation="",
-        references=[""],
+        references="",
     )
 
     return params
@@ -276,6 +274,24 @@ def get_clipper(params):
     return clipper
 
 
+def load_references(pattern):
+    if not pattern:
+        return None
+
+    files = glob.glob(pattern)
+    references = []
+
+    for name in files:
+        ref = []
+        with open(name, "rb") as fd:
+            for line in fd:
+                items = line.strip().split()
+                ref.append(items)
+        references.append(ref)
+
+    return list(zip(*references))
+
+
 def main(args):
     model_cls = models.get_model(args.model)
 
@@ -343,6 +359,13 @@ def main(args):
 
     dataset = data.get_dataset(params.input, "train", params)
 
+    if params.validation:
+        eval_dataset = data.get_dataset(params.validation, "infer", params)
+        references = load_references(params.references)
+    else:
+        eval_dataset = None
+        references = None
+
     # Load checkpoint
     checkpoint = utils.latest_checkpoint(params.output)
 
@@ -366,6 +389,7 @@ def main(args):
 
     counter = 0
     should_save = False
+    should_eval = False
 
     while True:
         for features in dataset:
@@ -373,6 +397,7 @@ def main(args):
                 step += 1
                 utils.set_global_step(step)
                 should_save = True
+                should_eval = True
 
             counter += 1
             t = time.time()
@@ -391,6 +416,13 @@ def main(args):
             print("epoch = %d, step = %d, loss = %.3f (%.3f sec)" %
                   (epoch + 1, step, float(loss), t))
 
+            # Evaluate model
+            if step % params.eval_steps == 0:
+                if should_eval:
+                    utils.evaluate(model, eval_dataset, params.output,
+                                  references, params)
+                    should_eval = False
+
             if step % params.save_checkpoint_steps == 0:
                 if should_save:
                     save_checkpoint(step, epoch, model, optimizer, params)
@@ -399,6 +431,10 @@ def main(args):
             if step >= params.train_steps:
                 if should_save:
                     save_checkpoint(step, epoch, model, optimizer, params)
+
+                if should_eval:
+                    utils.evaluate(model, eval_dataset, params.output,
+                                   references, params)
 
                 if dist.get_rank() == 0:
                     summary.close()

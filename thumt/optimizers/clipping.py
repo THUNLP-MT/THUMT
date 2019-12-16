@@ -10,12 +10,10 @@ import math
 
 def global_norm_clipper(value):
     def clip_fn(gradients, grad_norm):
-        norm = grad_norm.tolist()
-
-        if not float(value) or norm < value:
+        if not float(value) or grad_norm < value:
             return False, gradients
 
-        scale = value / norm
+        scale = value / grad_norm
 
         gradients = [grad.data.mul_(scale)
             if grad is not None else None for grad in gradients]
@@ -48,7 +46,7 @@ def adaptive_clipper(rho):
         nonlocal log_norm_avg
         nonlocal log_norm_sqr
 
-        norm = grad_norm.tolist()
+        norm = grad_norm
         log_norm = math.log(norm)
 
         avg = rho * norm_avg + (1.0 - rho) * norm

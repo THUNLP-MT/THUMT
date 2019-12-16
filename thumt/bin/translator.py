@@ -6,13 +6,17 @@ from __future__ import division
 from __future__ import print_function
 
 import argparse
+import copy
 import logging
 import os
+import re
 import six
+import socket
 import time
 import torch
 
 import thumt.data as data
+import torch.distributed as dist
 import thumt.models as models
 import thumt.utils as utils
 
@@ -54,7 +58,7 @@ def default_params():
         bos="<bos>",
         eos="<eos>",
         unk="<unk>",
-        device=0,
+        device_list=[0],
         # decoding
         top_beams=1,
         beam_size=4,
@@ -119,19 +123,28 @@ def override_params(params, args):
 
 
 def convert_to_string(tensor, params):
-    tensor = torch.squeeze(tensor, dim=1)
-    tensor = tensor.tolist()
-    decoded = []
+    ids = tensor.tolist()
 
-    for ids in tensor:
-        output = []
-        for wid in ids:
-            if wid == 1:
-                break
-            output.append(params.mapping["target"][wid])
-        decoded.append(b" ".join(output))
+    output = []
 
-    return decoded
+    for wid in ids:
+        if wid == 1:
+            break
+        output.append(params.mapping["target"][wid])
+
+    output = b" ".join(output)
+
+    return output
+
+
+def infer_gpu_num(param_str):
+    result = re.match(r".*device_list=\[(.*)\].*", param_str)
+
+    if not result:
+        return 1
+    else:
+        dev_str = result.groups()[-1]
+        return len(dev_str.split(","))
 
 
 def main(args):
@@ -141,7 +154,11 @@ def main(args):
     params = merge_params(params, model_cls.default_params())
     params = import_params(args.checkpoint, args.model, params)
     params = override_params(params, args)
-    torch.cuda.set_device(params.device)
+
+    dist.init_process_group("nccl", init_method=args.url,
+                            rank=args.local_rank,
+                            world_size=len(params.device_list))
+    torch.cuda.set_device(params.device_list[args.local_rank])
     torch.set_default_tensor_type(torch.cuda.FloatTensor)
 
     # Create model
@@ -158,28 +175,96 @@ def main(args):
             torch.load(utils.latest_checkpoint(args.checkpoint),
                        map_location="cpu")["model"])
 
-        # Decoding
         dataset = data.get_dataset(args.input, "infer", params)
-        fd = open(args.output, "wb")
+        iterator = iter(dataset)
         counter = 0
+        pad_max = 1024
 
-        for features in dataset:
+        # Buffers for synchronization
+        size = torch.zeros([dist.get_world_size()]).long()
+        t_list = [torch.empty([params.decode_batch_size, pad_max]).long()
+                  for _ in range(dist.get_world_size())]
+
+        if dist.get_rank() == 0:
+            fd = open(args.output, "wb")
+        else:
+            fd = None
+
+        while True:
+            try:
+                features = next(iterator)
+                features = data.lookup(features, "infer", params)
+                batch_size = features["source"].shape[0]
+            except:
+                features = {
+                    "source": torch.ones([1, 1]).long(),
+                    "source_mask": torch.ones([1, 1]).float()
+                }
+                batch_size = 0
+
             t = time.time()
             counter += 1
-            features = data.lookup(features, "infer", params)
 
+            # Decode
             seqs, _ = utils.beam_search([model], features, params)
-            batch = convert_to_string(seqs, params)
 
-            for seq in batch:
-                fd.write(seq)
-                fd.write(b"\n")
+            # Padding
+            seqs = torch.squeeze(seqs, dim=1)
+            pad_batch = params.decode_batch_size - seqs.shape[0]
+            pad_length = pad_max - seqs.shape[1]
+            seqs = torch.nn.functional.pad(seqs, (0, pad_length, 0, pad_batch))
+
+            # Synchronization
+            size.zero_()
+            size[dist.get_rank()].copy_(torch.tensor(batch_size))
+            dist.all_reduce(size)
+            dist.all_gather(t_list, seqs)
+
+            if size.sum() == 0:
+                break
+
+            if dist.get_rank() != 0:
+                continue
+
+            for i in range(params.decode_batch_size):
+                for j in range(dist.get_world_size()):
+                    n = size[j]
+                    seq = convert_to_string(t_list[j][i], params)
+
+                    if i >= n:
+                        continue
+
+                    fd.write(seq)
+                    fd.write(b"\n")
 
             t = time.time() - t
             print("Finished batch: %d (%.3f sec)" % (counter, t))
 
-        fd.close()
+        if dist.get_rank() == 0:
+            fd.close()
+
+
+# Wrap main function
+def process_fn(rank, args):
+    local_args = copy.copy(args)
+    local_args.local_rank = rank
+    main(local_args)
 
 
 if __name__ == "__main__":
-    main(parse_args())
+    parsed_args = parse_args()
+
+    # Pick a free port
+    with socket.socket() as s:
+        s.bind(("localhost", 0))
+        port = s.getsockname()[1]
+        url = "tcp://localhost:" + str(port)
+        parsed_args.url = url
+
+    world_size = infer_gpu_num(parsed_args.parameters)
+
+    if world_size > 1:
+        torch.multiprocessing.spawn(process_fn, args=(parsed_args,),
+                                    nprocs=world_size)
+    else:
+        process_fn(0, parsed_args)

@@ -10,10 +10,10 @@ This is the PyTorch implementation of THUMT.
 
 ## Features
 
-* Multi-GPU training
+* Multi-GPU training/decoding
 * Multi-worker distributed training
-* Gradient aggregation
 * Mixed precision training/decoding
+* Gradient aggregation
 * TensorBoard for visualization
 
 ## Usage
@@ -22,12 +22,11 @@ See the document of TensorFlow version THUMT.
 
 ## Changes
 
-* `learning_rate_decay` renamed to `learning_rate_schedule`
-* `constant_batch_size` renamed to `fixed_batch_size`
-* `--distribute` changed to `--distributed`
-* Add `--hparam_set` to select predefined hyper-parameters
-* Some features are not implemented (e.g. validation)
-* Model ensemble and multi-GPU decoding are currently not available
+* `learning_rate_decay` renamed to `learning_rate_schedule`.
+* `constant_batch_size` renamed to `fixed_batch_size`.
+* `--distribute` changed to `--distributed`.
+* Add `--hparam_set` to select predefined hyper-parameters.
+* Model ensemble is not available.
 
 ## Benchmarks
 

@@ -51,7 +51,7 @@ def init(log_dir, enable=True):
     if enable and dist.get_rank() == 0:
         _SUMMARY_WRITER = tensorboard.SummaryWriter(log_dir)
         _QUEUE = queue.Queue()
-        thread = SummaryWorker()
+        thread = SummaryWorker(daemon=True)
         thread.start()
         _THREAD = thread
 
