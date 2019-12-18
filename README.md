@@ -38,9 +38,9 @@ The following table summarizes the features of three implementations:
 | :------------: | :---: | :--------------: | :--------------: | :----------------: | :---------------: |
 | Theano       |  RNNsearch | MLE, MRT, SST | SGD, AdaDelta, Adam | RNNsearch | N.A. |
 | TensorFlow   |  Seq2Seq, RNNsearch, Transformer | MLE| Adam | RNNsearch, Transformer | Distributed Training, Mixed Precision Training, Gradient Aggregation, Model Ensemble |
-| PyTorch | Transformer | MLE | SGD, Adadelta, Adam | N.A. | Distributed Training, Mixed Precision Training, Gradient Aggregation
+| PyTorch | Transformer | MLE | SGD, Adadelta, Adam | N.A. | Distributed Training, Mixed Precision Training, Gradient Aggregation, Model Ensemble
 
-We recommend using [THUMT-TensorFlow](https://github.com/thumt/THUMT), which delivers better translation performance than [THUMT-Theano](https://github.com/thumt/THUMT/tree/theano). We will keep adding new features to [THUMT-TensorFlow](https://github.com/thumt/THUMT).
+We recommend using [THUMT-TensorFlow](https://github.com/thumt/THUMT) or [THUMT-PyTorch](https://github.com/thumt/THUMT/tree/pytorch), which delivers better translation performance than [THUMT-Theano](https://github.com/thumt/THUMT/tree/theano). We will keep adding new features to [THUMT-TensorFlow](https://github.com/thumt/THUMT) and [THUMT-PyTorch](https://github.com/thumt/THUMT/tree/pytorch).
 
 It is also possible to exploit layer-wise relevance propagation to visualize the relevance between source and target words with THUMT:
 
