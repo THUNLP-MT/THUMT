@@ -32,13 +32,13 @@ def parse_args():
                         help="Path of input file")
     parser.add_argument("--output", type=str, required=True,
                         help="Path of output file")
-    parser.add_argument("--checkpoint", type=str, required=True,
+    parser.add_argument("--checkpoints", type=str, required=True, nargs="+",
                         help="Path of trained models")
     parser.add_argument("--vocabulary", type=str, nargs=2, required=True,
                         help="Path of source and target vocabulary")
 
     # model and configuration
-    parser.add_argument("--model", type=str, required=True,
+    parser.add_argument("--models", type=str, required=True, nargs="+",
                         help="Name of the model")
     parser.add_argument("--parameters", type=str, default="",
                         help="Additional hyper parameters")
@@ -149,31 +149,45 @@ def infer_gpu_num(param_str):
 
 def main(args):
     # Load configs
-    model_cls = models.get_model(args.model)
-    params = default_params()
-    params = merge_params(params, model_cls.default_params())
-    params = import_params(args.checkpoint, args.model, params)
-    params = override_params(params, args)
+    model_cls_list = [models.get_model(model) for model in args.models]
+    params_list = [default_params() for _ in range(len(model_cls_list))]
+    params_list = [
+        merge_params(params, model_cls.default_params())
+        for params, model_cls in zip(params_list, model_cls_list)]
+    params_list = [
+        import_params(args.checkpoints[i], args.models[i], params_list[i])
+        for i in range(len(args.checkpoints))]
+    params_list = [
+        override_params(params_list[i], args)
+        for i in range(len(model_cls_list))]
 
+    params = params_list[0]
     dist.init_process_group("nccl", init_method=args.url,
                             rank=args.local_rank,
                             world_size=len(params.device_list))
     torch.cuda.set_device(params.device_list[args.local_rank])
     torch.set_default_tensor_type(torch.cuda.FloatTensor)
 
+    if args.half:
+        torch.set_default_dtype(torch.half)
+        torch.set_default_tensor_type(torch.cuda.HalfTensor)
+
     # Create model
     with torch.no_grad():
-        model = model_cls(params).cuda()
+        model_list = []
 
-        if args.half:
-            model = model.half()
-            torch.set_default_dtype(torch.half)
-            torch.set_default_tensor_type(torch.cuda.HalfTensor)
+        for i in range(len(args.models)):
+            model = model_cls_list[i](params_list[i]).cuda()
 
-        model.eval()
-        model.load_state_dict(
-            torch.load(utils.latest_checkpoint(args.checkpoint),
-                       map_location="cpu")["model"])
+            if args.half:
+                model = model.half()
+
+            model.eval()
+            model.load_state_dict(
+                torch.load(utils.latest_checkpoint(args.checkpoints[i]),
+                           map_location="cpu")["model"])
+
+            model_list.append(model)
 
         dataset = data.get_dataset(args.input, "infer", params)
         iterator = iter(dataset)
@@ -206,7 +220,7 @@ def main(args):
             counter += 1
 
             # Decode
-            seqs, _ = utils.beam_search([model], features, params)
+            seqs, _ = utils.beam_search(model_list, features, params)
 
             # Padding
             seqs = torch.squeeze(seqs, dim=1)

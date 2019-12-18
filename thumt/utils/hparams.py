@@ -131,4 +131,4 @@ class HParams(object):
         return {n: getattr(self, n) for n in six.iterkeys(self._hparam_types)}
 
     def __str__(self):
-        return str(sorted(six.iteritems(self.values)))
+        return str(sorted(six.iteritems(self.values())))

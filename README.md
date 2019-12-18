@@ -13,6 +13,7 @@ This is the PyTorch implementation of THUMT.
 * Multi-GPU training/decoding
 * Multi-worker distributed training
 * Mixed precision training/decoding
+* Model ensemble & averaging
 * Gradient aggregation
 * TensorBoard for visualization
 
@@ -26,7 +27,6 @@ See the document of TensorFlow version THUMT.
 * `constant_batch_size` renamed to `fixed_batch_size`.
 * `--distribute` changed to `--distributed`.
 * Add `--hparam_set` to select predefined hyper-parameters.
-* Model ensemble is not available.
 
 ## Benchmarks
 
