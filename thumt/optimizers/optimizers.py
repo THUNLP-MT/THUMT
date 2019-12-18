@@ -110,7 +110,7 @@ class SGDOptimizer(Optimizer):
 
     def __init__(self, learning_rate, summaries=True, name="SGD", **kwargs):
         super(SGDOptimizer, self).__init__(name, **kwargs)
-        self._learning_Rate = learning_rate
+        self._learning_rate = learning_rate
         self._summaries = summaries
 
         if "clipper" in kwargs and kwargs["clipper"] is not None:
@@ -386,6 +386,7 @@ class LossScalingOptimizer(Optimizer):
     def _update_if_finite_grads(self):
         if self._num_good_steps + 1 > self._increment_period:
             self._scale *= self._multiplier
+            self._scale = min(self._scale, 2.0**16)
             self._num_good_steps = 0
         else:
             self._num_good_steps += 1

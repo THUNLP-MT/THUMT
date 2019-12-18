@@ -21,6 +21,7 @@ from thumt.data.vocab import lookup
 from thumt.utils.checkpoint import save, latest_checkpoint
 from thumt.utils.inference import beam_search
 from thumt.utils.misc import get_global_step
+from thumt.utils.bpe import BPE
 
 
 def _save_log(filename, result):
@@ -169,6 +170,9 @@ def _evaluate_model(model, dataset, references, params):
 
                     if i >= n:
                         continue
+
+                    # Restore BPE segmentation
+                    seq = BPE.decode(seq)
 
                     results.append(seq.split())
 

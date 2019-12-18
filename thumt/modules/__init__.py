@@ -1,4 +1,5 @@
 from thumt.modules.affine import Affine
+from thumt.modules.attention import Attention
 from thumt.modules.attention import MultiHeadAttention
 from thumt.modules.attention import MultiHeadAdditiveAttention
 from thumt.modules.embedding import PositionalEmbedding

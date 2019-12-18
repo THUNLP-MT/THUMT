@@ -13,6 +13,73 @@ from thumt.modules.module import Module
 from thumt.modules.affine import Affine
 
 
+class Attention(Module):
+
+    def __init__(self, q_size, k_size, hidden_size, name="attention"):
+        super(Attention, self).__init__(name)
+
+        self._q_size = q_size
+        self._k_size = k_size
+        self._hidden_size = hidden_size
+
+        with utils.scope(name):
+            self.q_transform = Affine(q_size, hidden_size, name="q_transform")
+            self.k_transform = Affine(k_size, hidden_size, name="k_transform")
+            self.v_transform = Affine(hidden_size, 1,
+                                      name="v_transform")
+
+        self.reset_parameters()
+
+    def compute_cache(self, memory):
+        return self.k_transform(memory)
+
+    def forward(self, query, bias, memory, cache=None):
+        q = self.q_transform(query)
+
+        if cache is None:
+            k = self.k_transform(memory)
+        else:
+            k = cache
+
+        # q: [batch, 1, hidden_size]
+        # k: [batch, length, hidden_size]
+        logits = self.v_transform(torch.tanh(q + k))
+        # [batch, length, 1]
+        logits = torch.transpose(logits, 1, 2)
+        # [batch, 1, 1, length]
+        logits = torch.unsqueeze(logits, 2)
+
+        if bias is not None:
+            logits = logits + bias
+
+        weights = torch.softmax(logits, dim=-1)
+
+        # [batch, 1, length]
+        weights = torch.squeeze(weights, 2)
+        output = torch.matmul(weights, memory)
+
+        return output
+
+    def reset_parameters(self, initializer="uniform_scaling", **kwargs):
+        if initializer == "uniform_scaling":
+            # 6 / (4 * hidden_size) -> 6 / (2 * hidden_size)
+            nn.init.xavier_uniform_(self.q_transform.weight)
+            nn.init.xavier_uniform_(self.k_transform.weight)
+            nn.init.xavier_uniform_(self.v_transform.weight)
+            nn.init.constant_(self.q_transform.bias, 0.0)
+            nn.init.constant_(self.k_transform.bias, 0.0)
+            nn.init.constant_(self.v_transform.bias, 0.0)
+        elif initializer == "uniform":
+            nn.init.uniform_(self.q_transform.weight, -0.04, 0.04)
+            nn.init.uniform_(self.k_transform.weight, -0.04, 0.04)
+            nn.init.uniform_(self.v_transform.weight, -0.04, 0.04)
+            nn.init.uniform_(self.q_transform.bias, -0.04, 0.04)
+            nn.init.uniform_(self.k_transform.bias, -0.04, 0.04)
+            nn.init.uniform_(self.v_transform.bias, -0.04, 0.04)
+        else:
+            raise ValueError("Unknown initializer %d" % initializer)
+
+
 class MultiHeadAttentionBase(Module):
 
     def __init__(self, name="multihead_attention_base"):

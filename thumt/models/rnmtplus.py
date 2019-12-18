@@ -90,14 +90,20 @@ class RNMTPlusEncoder(modules.Module):
 
 class AttentionLSTMLayer(modules.Module):
 
-    def __init__(self, hidden_size, num_heads, dropout,
+    def __init__(self, hidden_size, num_heads, dropout, attention="multihead",
                  name="layer"):
         super(AttentionLSTMLayer, self).__init__(name=name)
 
         with utils.scope(name):
             self.cell = modules.LSTMCell(2 * hidden_size, hidden_size)
-            self.attention = modules.MultiHeadAdditiveAttention(
-                2 * hidden_size, hidden_size, hidden_size, num_heads, dropout)
+
+            if attention == "multihead":
+                self.attention = modules.MultiHeadAdditiveAttention(
+                    2 * hidden_size, hidden_size, hidden_size, num_heads,
+                    dropout)
+            else:
+                self.attention = modules.Attention(2 * hidden_size,
+                                                   hidden_size, hidden_size)
 
     def forward(self, x, memory, mask, bias, state=None):
         outputs = []
@@ -116,7 +122,6 @@ class AttentionLSTMLayer(modules.Module):
             contexts.append(context)
             new_state = self.cell.mask_state(new_state, state, mask_t)
             state = new_state
-
 
         output = torch.cat(outputs, 1)
         context = torch.cat(contexts, 1)
@@ -159,7 +164,7 @@ class RNMTPlusDecoder(modules.Module):
         with utils.scope(name):
             self.layers = nn.ModuleList([
                 AttentionLSTMLayer(params.hidden_size, params.num_heads,
-                                   params.attention_dropout,
+                                   params.attention_dropout, params.attention,
                                    name="layer_%d" % i)
                 if i == 0 else
                 LSTMLayer(2 * params.hidden_size, params.hidden_size,
@@ -344,6 +349,7 @@ class RNMTPlus(modules.Module):
             label_smoothing=0.1,
             shared_embedding_and_softmax_weights=False,
             shared_source_target_embedding=False,
+            attention="multihead",
             # Override default parameters
             warmup_steps=16000,
             start_decay_step=18750,
@@ -357,7 +363,7 @@ class RNMTPlus(modules.Module):
             adam_beta1=0.9,
             adam_beta2=0.999,
             adam_epsilon=1e-6,
-            clip_grad_norm=0.0
+            clip_grad_norm=5.0
         )
 
         return params
@@ -378,6 +384,7 @@ class RNMTPlus(modules.Module):
             label_smoothing=0.1,
             shared_embedding_and_softmax_weights=False,
             shared_source_target_embedding=False,
+            attention="multihead",
             # Override default parameters
             warmup_steps=16000,
             start_decay_step=37500,
@@ -391,7 +398,7 @@ class RNMTPlus(modules.Module):
             adam_beta1=0.9,
             adam_beta2=0.999,
             adam_epsilon=1e-6,
-            clip_grad_norm=0.0
+            clip_grad_norm=5.0
         )
 
         return params
