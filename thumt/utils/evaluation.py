@@ -14,14 +14,14 @@ import time
 import torch
 
 import torch.distributed as dist
-import thumt.utils.bleu as bleu
-import thumt.utils.summary as summary
 
 from thumt.data.vocab import lookup
 from thumt.utils.checkpoint import save, latest_checkpoint
 from thumt.utils.inference import beam_search
-from thumt.utils.misc import get_global_step
+from thumt.utils.bleu import bleu
 from thumt.utils.bpe import BPE
+from thumt.utils.misc import get_global_step
+from thumt.utils.summary import scalar
 
 
 def _save_log(filename, result):
@@ -182,7 +182,7 @@ def _evaluate_model(model, dataset, references, params):
     model.train()
 
     if dist.get_rank() == 0:
-        return bleu.bleu(results, references)
+        return bleu(results, references)
     else:
         return 0.0
 
@@ -220,7 +220,7 @@ def evaluate(model, dataset, base_dir, references, params):
 
     # Save records
     if dist.get_rank() == 0:
-        summary.scalar("BLEU/score", score, global_step, write_every_n_steps=1)
+        scalar("BLEU/score", score, global_step, write_every_n_steps=1)
         print("BLEU at step %d: %f" % (global_step, score))
 
         # Save checkpoint to save_path

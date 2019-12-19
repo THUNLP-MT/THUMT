@@ -17,16 +17,18 @@ from thumt.modules.layer_norm import LayerNorm
 
 class LSTMCell(Module):
 
-    def __init__(self, input_size, output_size, layer_norm=True, name="lstm"):
+    def __init__(self, input_size, output_size, normalization=False,
+                 activation=None, name="lstm"):
         super(LSTMCell, self).__init__(name=name)
 
         self.input_size = input_size
         self.output_size = output_size
+        self.activation = activation
 
         with utils.scope(name):
             self.gates = Affine(input_size + output_size, 4 * output_size,
                                 name="gates")
-            if layer_norm:
+            if normalization:
                 self.layer_norm = LayerNorm([4, output_size])
             else:
                 self.layer_norm = None
@@ -48,8 +50,12 @@ class LSTMCell(Module):
         i, f, o = torch.sigmoid(i), torch.sigmoid(f), torch.sigmoid(o)
 
         new_c = f * c + i * torch.tanh(j)
-        # Do not use tanh activation
-        new_h = o * new_c
+
+        if self.activation is None:
+            # Do not use tanh activation
+            new_h = o * new_c
+        else:
+            new_h = o * self.activation(new_c)
 
         return new_h, (new_c, new_h)
 
