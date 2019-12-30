@@ -8,6 +8,10 @@ This is the PyTorch implementation of THUMT.
 * PyTorch
 * TensorFlow-CPU 2.0 (for data reading, do NOT use GPU version)
 
+## Installation
+
+`pip install git+https://github.com/THUNLP-MT/THUMT/tree/pytorch`
+
 ## Features
 
 * Multi-GPU training/decoding
@@ -39,3 +43,10 @@ See the document of TensorFlow version THUMT.
 |WMT14 En-De|Transformer| Big  | 300k  |   8  |   4096    |   FP16   | 28.71  |
 |WMT14 En-De|Transformer| Big  |  20k  |  16  |  8*4096   | DistFP16 | 28.68  |
 |WMT17 Zh-En|Transformer| Big  | 300k  |   8  |   4096    |   FP16   | 24.43  |
+
+## License
+
+The source code is dual licensed. Open source licensing is under the
+[BSD-3-Clause](https://opensource.org/licenses/BSD-3-Clause), which allows
+free use for research purposes. For commercial licensing, please email
+[thumt17@gmail.com](mailto:thumt17@gmail.com).
