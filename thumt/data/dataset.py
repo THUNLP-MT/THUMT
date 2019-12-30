@@ -108,6 +108,8 @@ def build_input_fn(filenames, mode, params):
         src_dataset = tf.data.TextLineDataset(filenames[0])
         tgt_dataset = tf.data.TextLineDataset(filenames[1])
         dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
+        dataset = dataset.shard(torch.distributed.get_world_size(),
+                                torch.distributed.get_rank())
 
         # Split string
         dataset = dataset.map(
@@ -134,7 +136,7 @@ def build_input_fn(filenames, mode, params):
 
         # Batching
         dataset = dataset.padded_batch(
-            params.batch_size,
+            params.decode_batch_size,
             padded_shapes=({
                 "source": tf.TensorShape([None]),
                 "source_length": tf.TensorShape([]),

@@ -8,15 +8,11 @@ This is the PyTorch implementation of THUMT.
 * PyTorch
 * TensorFlow-CPU 2.0 (for data reading, do NOT use GPU version)
 
-## Installation
-
-`pip install git+https://github.com/THUNLP-MT/THUMT/tree/pytorch`
-
 ## Features
 
-* Multi-GPU training/decoding
+* Multi-GPU training & decoding
 * Multi-worker distributed training
-* Mixed precision training/decoding
+* Mixed precision training & decoding
 * Model ensemble & averaging
 * Gradient aggregation
 * TensorBoard for visualization

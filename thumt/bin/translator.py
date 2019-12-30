@@ -28,7 +28,7 @@ def parse_args():
     )
 
     # input files
-    parser.add_argument("--input", type=str, required=True,
+    parser.add_argument("--input", type=str, required=True, nargs="+",
                         help="Path of input file")
     parser.add_argument("--output", type=str, required=True,
                         help="Path of output file")
@@ -189,7 +189,14 @@ def main(args):
 
             model_list.append(model)
 
-        dataset = data.get_dataset(args.input, "infer", params)
+        if len(args.input) == 1:
+            mode = "infer"
+            dataset = data.get_dataset(args.input[0], mode, params)
+        else:
+            # Teacher-forcing
+            mode = "eval"
+            dataset = data.get_dataset(args.input, mode, params)
+
         iterator = iter(dataset)
         counter = 0
         pad_max = 1024
@@ -207,20 +214,32 @@ def main(args):
         while True:
             try:
                 features = next(iterator)
-                features = data.lookup(features, "infer", params)
+                features = data.lookup(features, mode, params)
+
+                if mode == "eval":
+                    features = features[0]
+
                 batch_size = features["source"].shape[0]
             except:
                 features = {
                     "source": torch.ones([1, 1]).long(),
                     "source_mask": torch.ones([1, 1]).float()
                 }
+
+                if mode == "eval":
+                    features["target"] = torch.ones([1, 1]).long()
+                    features["target_mask"] = torch.ones([1, 1]).float()
+
                 batch_size = 0
 
             t = time.time()
             counter += 1
 
             # Decode
-            seqs, _ = utils.beam_search(model_list, features, params)
+            if mode != "eval":
+                seqs, _ = utils.beam_search(model_list, features, params)
+            else:
+                seqs, _ = utils.argmax_decoding(model_list, features, params)
 
             # Padding
             seqs = torch.squeeze(seqs, dim=1)

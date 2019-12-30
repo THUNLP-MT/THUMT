@@ -253,3 +253,34 @@ def beam_search(models, features, params):
                                alive_scores)
 
     return final_seqs[:, :top_beams, 1:], final_scores[:, :top_beams]
+
+
+def argmax_decoding(models, features, params):
+    if not isinstance(models, (list, tuple)):
+        raise ValueError("'models' must be a list or tuple")
+
+    # Compute initial state if necessary
+    log_probs = []
+    shape = features["target"].shape
+    device = features["target"].device
+    batch_size = features["target"].shape[0]
+    target_mask = features["target_mask"]
+    target_length = target_mask.sum(1).long()
+    eos_id = params.lookup["target"][params.eos.encode("utf-8")]
+
+    for model in models:
+        state = model.empty_state(batch_size, device)
+        state = model.encode(features, state)
+        logits, _ = model.decode(features, state, "eval")
+        log_probs.append(torch.nn.functional.log_softmax(logits, dim=-1))
+
+    log_prob = sum(log_probs) / len(models)
+    ret = torch.max(log_prob, -1)
+    values = torch.reshape(ret.values, shape)
+    indices = torch.reshape(ret.indices, shape)
+
+    batch_pos = torch.arange(batch_size, device=device)
+    seq_pos = target_length - 1
+    indices[batch_pos, seq_pos] = eos_id
+
+    return indices[:, None, :], torch.sum(values * target_mask, -1)[:, None]
