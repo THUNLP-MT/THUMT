@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017-2019 The THUMT Authors
+# Copyright 2017-2020 The THUMT Authors
 
 from __future__ import absolute_import
 from __future__ import division
@@ -13,6 +13,53 @@ import thumt.utils as utils
 from thumt.modules.module import Module
 from thumt.modules.affine import Affine
 from thumt.modules.layer_norm import LayerNorm
+
+
+class GRUCell(Module):
+
+    def __init__(self, input_size, output_size, normalization=False,
+                 name="gru"):
+        super(GRUCell, self).__init__(name=name)
+
+        self.input_size = input_size
+        self.output_size = output_size
+
+        with utils.scope(name):
+            self.reset_gate = Affine(input_size + output_size, output_size,
+                                     bias=False, name="reset_gate")
+            self.update_gate = Affine(input_size + output_size, output_size,
+                                      bias=False, name="update_gate")
+            self.transform = Affine(input_size + output_size, output_size,
+                                    name="transform")
+
+    def forward(self, x, h):
+        r = torch.sigmoid(self.reset_gate(torch.cat([x, h], -1)))
+        u = torch.sigmoid(self.update_gate(torch.cat([x, h], -1)))
+        c = self.transform(torch.cat([x, r * h], -1))
+
+        new_h = (1.0 - u) * h + u * torch.tanh(h)
+
+        return new_h, new_h
+
+    def init_state(self, batch_size, dtype, device):
+        h = torch.zeros([batch_size, self.output_size], dtype=dtype,
+                        device=device)
+        return h
+
+    def mask_state(self, h, prev_h, mask):
+        mask = mask[:, None]
+        new_h = mask * h + (1.0 - mask) * prev_h
+        return new_h
+
+    def reset_parameters(self, initializer="uniform"):
+        if initializer == "uniform_scaling":
+            nn.init.xavier_uniform_(self.gates.weight)
+            nn.init.constant_(self.gates.bias, 0.0)
+        elif initializer == "uniform":
+            nn.init.uniform_(self.gates.weight, -0.08, 0.08)
+            nn.init.uniform_(self.gates.bias, -0.08, 0.08)
+        else:
+            raise ValueError("Unknown initializer %d" % initializer)
 
 
 class LSTMCell(Module):
@@ -83,4 +130,3 @@ class LSTMCell(Module):
             nn.init.uniform_(self.gates.bias, -0.04, 0.04)
         else:
             raise ValueError("Unknown initializer %d" % initializer)
-
