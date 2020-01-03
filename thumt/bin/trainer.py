@@ -178,7 +178,7 @@ def override_params(params, args):
     params.vocab = args.vocabulary or params.vocab
     params.validation = args.validation or params.validation
     params.references = args.references or params.references
-    params.parse(args.parameters)
+    params.parse(args.parameters.lower())
 
     src_vocab, src_w2idx, src_idx2w = data.load_vocabulary(params.vocab[0])
     tgt_vocab, tgt_w2idx, tgt_idx2w = data.load_vocabulary(params.vocab[1])
@@ -229,7 +229,7 @@ def save_checkpoint(step, epoch, model, optimizer, params):
 
 
 def infer_gpu_num(param_str):
-    result = re.match(r".*device_list=\[(.*)\].*", param_str)
+    result = re.match(r".*device_list=\[(.*?)\].*", param_str)
 
     if not result:
         return 1
@@ -451,7 +451,7 @@ def process_fn(rank, args):
     main(local_args)
 
 
-if __name__ == "__main__":
+def cli_main():
     parsed_args = parse_args()
 
     if parsed_args.distributed:
@@ -471,3 +471,7 @@ if __name__ == "__main__":
                                         nprocs=world_size)
         else:
             process_fn(0, parsed_args)
+
+
+if __name__ == "__main__":
+    cli_main()

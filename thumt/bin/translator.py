@@ -104,7 +104,7 @@ def import_params(model_dir, model_name, params):
 
 
 def override_params(params, args):
-    params.parse(args.parameters)
+    params.parse(args.parameters.lower())
 
     src_vocab, src_w2idx, src_idx2w = data.load_vocabulary(args.vocabulary[0])
     tgt_vocab, tgt_w2idx, tgt_idx2w = data.load_vocabulary(args.vocabulary[1])
@@ -138,7 +138,7 @@ def convert_to_string(tensor, params):
 
 
 def infer_gpu_num(param_str):
-    result = re.match(r".*device_list=\[(.*)\].*", param_str)
+    result = re.match(r".*device_list=\[(.*?)\].*", param_str)
 
     if not result:
         return 1
@@ -284,7 +284,7 @@ def process_fn(rank, args):
     main(local_args)
 
 
-if __name__ == "__main__":
+def cli_main():
     parsed_args = parse_args()
 
     # Pick a free port
@@ -301,3 +301,7 @@ if __name__ == "__main__":
                                     nprocs=world_size)
     else:
         process_fn(0, parsed_args)
+
+
+if __name__ == "__main__":
+    cli_main()
