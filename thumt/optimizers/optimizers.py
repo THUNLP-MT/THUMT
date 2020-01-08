@@ -112,6 +112,7 @@ class SGDOptimizer(Optimizer):
         super(SGDOptimizer, self).__init__(name, **kwargs)
         self._learning_rate = learning_rate
         self._summaries = summaries
+        self._clipper = None
 
         if "clipper" in kwargs and kwargs["clipper"] is not None:
             self._clipper = kwargs["clipper"]
@@ -278,6 +279,7 @@ class AdadeltaOptimizer(Optimizer):
         self._rho = rho
         self._epsilon = epsilon
         self._summaries = True
+        self._clipper = None
 
         if "summaries" in kwargs and not kwargs["summaries"]:
             self._summaries = False

@@ -252,6 +252,10 @@ def beam_search(models, features, params):
     final_scores = torch.where(final_flags.any(1)[:, None, None], final_scores,
                                alive_scores)
 
+    # Append extra <eos>
+    final_seqs = torch.nn.functional.pad(final_seqs, (0, 1, 0, 0, 0, 0),
+                                         value=eos_id)
+
     return final_seqs[:, :top_beams, 1:], final_scores[:, :top_beams]
 
 
