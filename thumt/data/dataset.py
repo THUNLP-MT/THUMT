@@ -84,7 +84,7 @@ def build_input_fn(filenames, mode, params):
                 "target": params.pad,
                 "target_length": 0
                 }, params.pad),
-            pad_to_bucket_boundary=True)
+            pad_to_bucket_boundary=False)
 
         dataset = dataset.filter(valid_size)
         dataset = dataset.apply(transformation_fn)

@@ -17,7 +17,7 @@ setup(
             "thumt-trainer = thumt.bin.trainer:cli_main",
             "thumt-translator = thumt.bin.translator:cli_main"]},
     scripts=[
-        "thumt/scripts/average_checkpoint.py",
+        "thumt/scripts/average_checkpoints.py",
         "thumt/scripts/build_vocab.py",
         "thumt/scripts/convert_checkpoint.py",
         "thumt/scripts/shuffle_corpus.py"],
