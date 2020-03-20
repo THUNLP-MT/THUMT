@@ -30,7 +30,10 @@ class LinearWarmupRsqrtDecay(LearningRateSchedule):
         super(LinearWarmupRsqrtDecay, self).__init__()
 
         if not initial_learning_rate:
-            initial_learning_rate = learning_rate / warmup_steps
+            if warmup_steps > 0:
+                initial_learning_rate = learning_rate / warmup_steps
+            else:
+                initial_learning_rate = 0.0
 
         self._initial_learning_rate = initial_learning_rate
         self._maximum_learning_rate = learning_rate
@@ -43,8 +46,13 @@ class LinearWarmupRsqrtDecay(LearningRateSchedule):
             lr_step /= self._warmup_steps
             lr = self._initial_learning_rate + lr_step * step
         else:
-            step = step / self._warmup_steps
-            lr = self._maximum_learning_rate * (step ** -0.5)
+            lr = self._maximum_learning_rate
+
+            if self._warmup_steps != 0:
+                # approximately hidden_size ** -0.5
+                lr = lr * self._warmup_steps ** -0.5
+
+            lr = lr * (step ** -0.5)
 
         if self._summary:
             summary.scalar("learning_rate", lr, utils.get_global_step())

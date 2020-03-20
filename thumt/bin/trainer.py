@@ -84,6 +84,7 @@ def default_params():
         scale_l1=0.0,
         scale_l2=0.0,
         # Training
+        initial_step=0,
         warmup_steps=4000,
         train_steps=100000,
         update_cycle=1,
@@ -93,6 +94,7 @@ def default_params():
         adam_epsilon=1e-8,
         adadelta_rho=0.95,
         adadelta_epsilon=1e-7,
+        pattern="",
         clipping="global_norm",
         clip_grad_norm=5.0,
         learning_rate=1.0,
@@ -369,7 +371,14 @@ def main(args):
     # Load checkpoint
     checkpoint = utils.latest_checkpoint(params.output)
 
-    if checkpoint is not None:
+    if args.checkpoint is not None:
+        # Load pre-trained models
+        state = torch.load(args.checkpoint, map_location="cpu")
+        model.load_state_dict(state["model"])
+        step = params.initial_step
+        epoch = 0
+        broadcast(model)
+    elif checkpoint is not None:
         state = torch.load(checkpoint, map_location="cpu")
         step = state["step"]
         epoch = state["epoch"]
@@ -405,8 +414,10 @@ def main(args):
             loss = train_fn(features)
             gradients = optimizer.compute_gradients(loss,
                                                     list(model.parameters()))
-            optimizer.apply_gradients(zip(gradients,
-                                          list(model.named_parameters())))
+            grads_and_vars = optimizers.exclude_variables(
+                params.pattern,
+                zip(gradients, list(model.named_parameters())))
+            optimizer.apply_gradients(grads_and_vars)
 
             t = time.time() - t
 

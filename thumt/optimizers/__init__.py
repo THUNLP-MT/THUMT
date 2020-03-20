@@ -1,3 +1,4 @@
+from thumt.optimizers.optimizers import exclude_variables
 from thumt.optimizers.optimizers import AdamOptimizer
 from thumt.optimizers.optimizers import AdadeltaOptimizer
 from thumt.optimizers.optimizers import MultiStepOptimizer

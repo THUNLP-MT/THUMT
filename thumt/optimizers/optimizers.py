@@ -5,6 +5,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import re
 import math
 import torch
 import torch.distributed as dist
@@ -44,6 +45,21 @@ def _compute_grad_norm(gradients):
         total_norm += float(grad.data.norm() ** 2)
 
     return float(total_norm ** 0.5)
+
+
+def exclude_variables(pattern, grads_and_vars):
+    pattern = re.compile(pattern)
+    new_grads = []
+    new_vars = []
+
+    for grad, (name, var) in grads_and_vars:
+        if re.search(pattern, var.tensor_name):
+            continue
+        else:
+            new_grads.append(grad)
+            new_vars.append((name, var))
+
+    return zip(new_grads, new_vars)
 
 
 class Optimizer(object):
