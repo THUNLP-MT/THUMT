@@ -373,7 +373,7 @@ class Transformer(modules.Module):
         params.attention_dropout = 0.1
         params.relu_dropout = 0.1
         params.learning_rate = 12e-4
-        params.warmup_step = 8000
+        params.warmup_steps = 8000
         params.normalization = "before"
         params.adam_beta2 = 0.997
 
