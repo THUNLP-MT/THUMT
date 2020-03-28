@@ -48,6 +48,9 @@ def _compute_grad_norm(gradients):
 
 
 def exclude_variables(pattern, grads_and_vars):
+    if not pattern:
+        return grads_and_vars
+
     pattern = re.compile(pattern)
     new_grads = []
     new_vars = []
