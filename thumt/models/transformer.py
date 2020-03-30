@@ -296,15 +296,18 @@ class Transformer(modules.Module):
 
         return logits, state
 
-    def forward(self, features, labels):
+    def forward(self, features, labels, mode="train"):
         mask = features["target_mask"]
 
         state = self.empty_state(features["target"].shape[0],
                                  labels.device)
         state = self.encode(features, state)
-        logits, _ = self.decode(features, state, "train")
+        logits, _ = self.decode(features, state, mode=mode)
         loss = self.criterion(logits, labels)
         mask = mask.to(logits)
+        
+        if mode == "eval":
+            return -torch.sum(loss * mask, 1)
 
         return torch.sum(loss * mask) / torch.sum(mask)
 

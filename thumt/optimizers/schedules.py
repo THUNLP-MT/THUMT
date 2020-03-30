@@ -50,7 +50,7 @@ class LinearWarmupRsqrtDecay(LearningRateSchedule):
 
             if self._warmup_steps != 0:
                 # approximately hidden_size ** -0.5
-                lr = lr * self._warmup_steps ** -0.5
+                lr = lr * self._warmup_steps ** 0.5
 
             lr = lr * (step ** -0.5)
 
