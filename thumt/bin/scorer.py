@@ -15,6 +15,7 @@ import torch
 import socket
 import logging
 import argparse
+import numpy as np
 
 import torch.distributed as dist
 
@@ -67,7 +68,9 @@ def default_params():
         unk="<unk>",
         append_eos=False,
         device_list=[0],
-        decode_batch_size=32
+        decode_batch_size=32,
+        buffer_size=10000,
+        level='sentence'
     )
     
     return params
@@ -162,7 +165,6 @@ def main(args):
     # Important!
     params.label_smoothing = 0.0
     params.attention_dropout = 0.0
-    params.residual_dropout = 0.3
     params.residual_dropout = 0.0
     params.relu_dropout = 0.0
     
@@ -176,10 +178,9 @@ def main(args):
         torch.set_default_dtype(torch.half)
         torch.set_default_tensor_type(torch.cuda.HalfTensor)
     
-    def score_fn(inputs, _model):
+    def score_fn(inputs, _model, level='sentence'):
         _features, _labels = inputs
-        _score = _model(_features, _labels, mode="eval")
-        
+        _score = _model(_features, _labels, mode="eval", level=level)
         return _score
     
     # Create model
@@ -199,13 +200,21 @@ def main(args):
         dataset = data.get_dataset(args.input, "eval", params)
         data_iter = iter(dataset)
         counter = 0
+        pad_max = 1024
         
         # Buffers for synchronization
         size = torch.zeros([dist.get_world_size()]).long()
-        t_list = [torch.zeros([params.decode_batch_size]).float()
-                  for _ in range(dist.get_world_size())]
+        if params.level == 'sentence':
+            t_list = [torch.empty([params.decode_batch_size]).float()
+                      for _ in range(dist.get_world_size())]
+        else:
+            t_list = [torch.empty([params.decode_batch_size, pad_max]).float()
+                      for _ in range(dist.get_world_size())]
         
-        all_scores = []
+        if dist.get_rank() == 0:
+            fd = open(args.output, "w")
+        else:
+            fd = None
         
         while True:
             try:
@@ -223,13 +232,17 @@ def main(args):
             
             t = time.time()
             counter += 1
-            
-            # shape = [batch_size]
-            scores = score_fn(features, model)
+
+            scores = score_fn(features, model, params.level)
             
             # Padding
-            pad_batch = params.decode_batch_size - scores.shape[0]
-            scores = torch.nn.functional.pad(scores, [0, pad_batch])
+            if params.level == 'sentence':
+                pad_batch = params.decode_batch_size - scores.shape[0]
+                scores = torch.nn.functional.pad(scores, [0, pad_batch])
+            else:
+                pad_batch = params.decode_batch_size - scores.shape[0]
+                pad_length = pad_max - scores.shape[1]
+                scores = torch.nn.functional.pad(scores, (0, pad_length, 0, pad_batch), value=-1)
             
             # Synchronization
             size.zero_()
@@ -246,20 +259,30 @@ def main(args):
             for i in range(params.decode_batch_size):
                 for j in range(dist.get_world_size()):
                     n = size[j]
-                    score = t_list[j][i].item()
+                    score = t_list[j][i]
 
                     if i >= n:
                         continue
 
-                    all_scores.append(score)
+                    if params.level == 'sentence':
+                        fd.write('{:.4f}\n'.format(score))
+                    else:
+                        s_list = score.tolist()
+                        temp_value = []
+                        for s in s_list:
+                            if s >= 0:
+                                temp_value.append(np.log(s))
+                                fd.write('{:.8f} '.format(s))
+                            else:
+                                fd.write('\n')
+                                break
             
             t = time.time() - t
             logging.info("Finished batch: %d (%.3f sec)" % (counter, t))
             
         if dist.get_rank() == 0:
-            with open(args.output, "wb") as fd:
-                for score in all_scores:
-                    fd.write(b"%.4f\n" % score)
+            fd.close()
+
 
 # Wrap main function
 def process_fn(rank, args):

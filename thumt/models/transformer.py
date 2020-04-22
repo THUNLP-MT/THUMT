@@ -296,7 +296,7 @@ class Transformer(modules.Module):
 
         return logits, state
 
-    def forward(self, features, labels, mode="train"):
+    def forward(self, features, labels, mode="train", level='sentence'):
         mask = features["target_mask"]
 
         state = self.empty_state(features["target"].shape[0],
@@ -307,7 +307,10 @@ class Transformer(modules.Module):
         mask = mask.to(logits)
         
         if mode == "eval":
-            return -torch.sum(loss * mask, 1)
+            if level == 'sentence':
+                return -torch.sum(loss * mask, 1)
+            else:
+                return torch.exp(-loss) * mask - (1 - mask)
 
         return torch.sum(loss * mask) / torch.sum(mask)
 
