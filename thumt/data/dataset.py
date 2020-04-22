@@ -110,6 +110,7 @@ def build_input_fn(filenames, mode, params):
         dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
         dataset = dataset.shard(torch.distributed.get_world_size(),
                                 torch.distributed.get_rank())
+        dataset = dataset.prefetch(params.buffer_size)
 
         # Split string
         dataset = dataset.map(

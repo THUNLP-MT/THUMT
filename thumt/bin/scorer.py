@@ -161,6 +161,10 @@ def main(args):
     
     # Important!
     params.label_smoothing = 0.0
+    params.attention_dropout = 0.0
+    params.residual_dropout = 0.3
+    params.residual_dropout = 0.0
+    params.relu_dropout = 0.0
     
     dist.init_process_group("nccl", init_method=args.url,
                             rank=args.local_rank,
@@ -172,9 +176,9 @@ def main(args):
         torch.set_default_dtype(torch.half)
         torch.set_default_tensor_type(torch.cuda.HalfTensor)
     
-    def score_fn(inputs):
+    def score_fn(inputs, _model):
         _features, _labels = inputs
-        _score = model(_features, _labels, mode="eval")
+        _score = _model(_features, _labels, mode="eval")
         
         return _score
     
@@ -188,7 +192,7 @@ def main(args):
         if args.half:
             model = model.half()
 
-        model.eval()
+        # model.eval()
         model.load_state_dict(
             torch.load(utils.latest_checkpoint(args.checkpoint),
                        map_location="cpu")["model"])
@@ -221,7 +225,7 @@ def main(args):
             counter += 1
             
             # shape = [batch_size]
-            scores = score_fn(features)
+            scores = score_fn(features, model)
             
             # Padding
             pad_batch = params.decode_batch_size - scores.shape[0]
