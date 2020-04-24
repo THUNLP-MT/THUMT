@@ -128,18 +128,17 @@ def import_params(model_dir, model_name, params):
     p_name = os.path.join(model_dir, "params.json")
     m_name = os.path.join(model_dir, model_name + ".json")
 
-    if not os.path.exists(p_name) or not os.path.exists(m_name):
-        return params
+    if os.path.exists(p_name):
+        with open(p_name) as fd:
+            logging.info("Restoring hyper parameters from %s" % p_name)
+            json_str = fd.readline()
+            params.parse_json(json_str)
 
-    with open(p_name) as fd:
-        logging.info("Restoring hyper parameters from %s" % p_name)
-        json_str = fd.readline()
-        params.parse_json(json_str)
-
-    with open(m_name) as fd:
-        logging.info("Restoring model parameters from %s" % m_name)
-        json_str = fd.readline()
-        params.parse_json(json_str)
+    if os.path.exists(m_name):
+        with open(m_name) as fd:
+            logging.info("Restoring model parameters from %s" % m_name)
+            json_str = fd.readline()
+            params.parse_json(json_str)
 
     return params
 
