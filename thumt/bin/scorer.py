@@ -268,10 +268,8 @@ def main(args):
                         fd.write('{:.4f}\n'.format(score))
                     else:
                         s_list = score.tolist()
-                        temp_value = []
                         for s in s_list:
                             if s >= 0:
-                                temp_value.append(np.log(s))
                                 fd.write('{:.8f} '.format(s))
                             else:
                                 fd.write('\n')
