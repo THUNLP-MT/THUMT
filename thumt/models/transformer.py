@@ -308,9 +308,10 @@ class Transformer(modules.Module):
         
         if mode == "eval":
             if level == 'sentence':
-                return -torch.sum(loss * mask, 1)
+                score = -torch.sum(loss * mask, 1)
             else:
-                return torch.exp(-loss) * mask - (1 - mask)
+                score = torch.exp(-loss) * mask - (1 - mask)
+            return score.float()
 
         return torch.sum(loss * mask) / torch.sum(mask)
 
