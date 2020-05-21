@@ -193,7 +193,7 @@ def main(args):
         if args.half:
             model = model.half()
 
-        # model.eval()
+        model.eval()
         model.load_state_dict(
             torch.load(utils.latest_checkpoint(args.checkpoint),
                        map_location="cpu")["model"])
