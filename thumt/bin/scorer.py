@@ -47,7 +47,7 @@ def parse_args():
     # model and configuration
     parser.add_argument("--model", type=str, required=True,
                         help="Name of the model")
-    parser.add_argument("--parameters", type=str,
+    parser.add_argument("--parameters", type=str, default="",
                         help="Additional hyper parameters")
     parser.add_argument("--half", action="store_true",
                         help="Use half precision for decoding")
@@ -67,12 +67,13 @@ def default_params():
         eos="<eos>",
         unk="<unk>",
         append_eos=False,
+        monte_carlo=False,
         device_list=[0],
         decode_batch_size=32,
         buffer_size=10000,
-        level='sentence'
+        level="sentence"
     )
-    
+
     return params
 
 
@@ -129,26 +130,13 @@ def override_params(params, args):
     return params
 
 
-def print_variables(model):
-    weights = {v[0]: v[1] for v in model.named_parameters()}
-    total_size = 0
-
-    for name in sorted(list(weights)):
-        v = weights[name]
-        logging.info("%s %s" % (name.ljust(60), str(list(v.shape)).rjust(15)))
-        total_size += v.nelement()
-
-    logging.info("Total trainable variables size: %d" % total_size)
-
-
 def infer_gpu_num(param_str):
     result = re.match(r".*device_list=\[(.*?)\].*", param_str)
 
     if not result:
         return 1
-        
+
     dev_str = result.groups()[-1]
-    
     return len(dev_str.split(","))
 
 
@@ -161,13 +149,7 @@ def main(args):
     params = merge_params(params, model_cls.default_params())
     params = import_params(args.checkpoint, args.model, params)
     params = override_params(params, args)
-    
-    # Important!
-    params.label_smoothing = 0.0
-    params.attention_dropout = 0.0
-    params.residual_dropout = 0.0
-    params.relu_dropout = 0.0
-    
+
     dist.init_process_group("nccl", init_method=args.url,
                             rank=args.local_rank,
                             world_size=len(params.device_list))
@@ -177,23 +159,22 @@ def main(args):
     if args.half:
         torch.set_default_dtype(torch.half)
         torch.set_default_tensor_type(torch.cuda.HalfTensor)
-    
-    def score_fn(inputs, _model, level='sentence'):
+
+    def score_fn(inputs, _model, level="sentence"):
         _features, _labels = inputs
         _score = _model(_features, _labels, mode="eval", level=level)
         return _score
-    
+
     # Create model
     with torch.no_grad():
         model = model_cls(params).cuda()
-        
-        if dist.get_rank() == 0:
-            print_variables(model)
 
         if args.half:
             model = model.half()
 
-        model.eval()
+        if not params.monte_carlo:
+            model.eval()
+
         model.load_state_dict(
             torch.load(utils.latest_checkpoint(args.checkpoint),
                        map_location="cpu")["model"])
@@ -201,21 +182,21 @@ def main(args):
         data_iter = iter(dataset)
         counter = 0
         pad_max = 1024
-        
+
         # Buffers for synchronization
         size = torch.zeros([dist.get_world_size()]).long()
-        if params.level == 'sentence':
+        if params.level == "sentence":
             t_list = [torch.empty([params.decode_batch_size]).float()
                       for _ in range(dist.get_world_size())]
         else:
             t_list = [torch.empty([params.decode_batch_size, pad_max]).float()
                       for _ in range(dist.get_world_size())]
-        
+
         if dist.get_rank() == 0:
             fd = open(args.output, "w")
         else:
             fd = None
-        
+
         while True:
             try:
                 features = next(data_iter)
@@ -229,33 +210,34 @@ def main(args):
                     "target_mask": torch.ones([1, 1]).float()
                 }, torch.ones([1, 1]).long()
                 batch_size = 0
-            
+
             t = time.time()
             counter += 1
 
             scores = score_fn(features, model, params.level)
-            
+
             # Padding
-            if params.level == 'sentence':
+            if params.level == "sentence":
                 pad_batch = params.decode_batch_size - scores.shape[0]
                 scores = torch.nn.functional.pad(scores, [0, pad_batch])
             else:
                 pad_batch = params.decode_batch_size - scores.shape[0]
                 pad_length = pad_max - scores.shape[1]
-                scores = torch.nn.functional.pad(scores, (0, pad_length, 0, pad_batch), value=-1)
-            
+                scores = torch.nn.functional.pad(
+                    scores, (0, pad_length, 0, pad_batch), value=-1)
+
             # Synchronization
             size.zero_()
             size[dist.get_rank()].copy_(torch.tensor(batch_size))
             dist.all_reduce(size)
-            dist.all_gather(t_list, scores)
-            
+            dist.all_gather(t_list, scores.float())
+
             if size.sum() == 0:
                 break
-            
+
             if dist.get_rank() != 0:
                 continue
-            
+
             for i in range(params.decode_batch_size):
                 for j in range(dist.get_world_size()):
                     n = size[j]
@@ -264,20 +246,20 @@ def main(args):
                     if i >= n:
                         continue
 
-                    if params.level == 'sentence':
-                        fd.write('{:.4f}\n'.format(score))
+                    if params.level == "sentence":
+                        fd.write("{:.4f}\n".format(score))
                     else:
                         s_list = score.tolist()
                         for s in s_list:
                             if s >= 0:
-                                fd.write('{:.8f} '.format(s))
+                                fd.write("{:.8f} ".format(s))
                             else:
-                                fd.write('\n')
+                                fd.write("\n")
                                 break
-            
+
             t = time.time() - t
             logging.info("Finished batch: %d (%.3f sec)" % (counter, t))
-            
+
         if dist.get_rank() == 0:
             fd.close()
 

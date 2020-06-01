@@ -159,6 +159,10 @@ class SGDOptimizer(Optimizer):
             # Convert if grad is not FP32
             grad = grad.data.float()
             _, var = var
+
+            if isinstance(lr, LearningRateSchedule):
+                lr = lr(self._iterations)
+
             step_size = lr
 
             if var.dtype == torch.float32:

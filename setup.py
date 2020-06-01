@@ -7,7 +7,7 @@ from setuptools import setup
 
 setup(
     name="thumt",
-    version="1.1.0",
+    version="1.2.0",
     author="The THUMT Authors",
     author_email="thumt17@gmail.com",
     description="THUMT: An open-source toolkit for neural machine translation",
@@ -15,7 +15,9 @@ setup(
     entry_points={
         "console_scripts": [
             "thumt-trainer = thumt.bin.trainer:cli_main",
-            "thumt-translator = thumt.bin.translator:cli_main"]},
+            "thumt-translator = thumt.bin.translator:cli_main",
+            "thumt-scorer=thumt.bin.scorer:cli_main"
+            ]},
     scripts=[
         "thumt/scripts/average_checkpoints.py",
         "thumt/scripts/build_vocab.py",
@@ -26,7 +28,7 @@ setup(
         "future",
         "pillow",
         "torch>=1.1.0",
-        "tensorflow>=2.0.0"],
+        "tensorflow-cpu>=2.0.0"],
     classifiers=[
         "Programming Language :: Python :: 3",
         "Topic :: Scientific/Engineering :: Artificial Intelligence"])

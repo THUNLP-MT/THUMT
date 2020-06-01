@@ -25,7 +25,7 @@ class SmoothedCrossEntropyLoss(torch.nn.Module):
         batch_idx = torch.arange(labels.shape[0], device=logits.device)
         loss = log_probs[batch_idx, labels]
 
-        if not self.smoothing:
+        if not self.smoothing or not self.training:
             return -torch.reshape(loss, shape)
 
         n = logits.shape[-1] - 1.0

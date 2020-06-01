@@ -63,6 +63,7 @@ def default_params():
         top_beams=1,
         beam_size=4,
         decode_alpha=0.6,
+        decode_ratio=1.0,
         decode_length=50,
         decode_batch_size=32,
     )
@@ -198,12 +199,15 @@ def main(args):
             dataset = data.get_dataset(args.input, mode, params)
 
         iterator = iter(dataset)
+        idx = 0
         counter = 0
         pad_max = 1024
+        top_beams = params.top_beams
+        decode_batch_size = params.decode_batch_size
 
         # Buffers for synchronization
         size = torch.zeros([dist.get_world_size()]).long()
-        t_list = [torch.empty([params.decode_batch_size, pad_max]).long()
+        t_list = [torch.empty([decode_batch_size, top_beams, pad_max]).long()
                   for _ in range(dist.get_world_size())]
 
         if dist.get_rank() == 0:
@@ -242,10 +246,11 @@ def main(args):
                 seqs, _ = utils.argmax_decoding(model_list, features, params)
 
             # Padding
-            seqs = torch.squeeze(seqs, dim=1)
-            pad_batch = params.decode_batch_size - seqs.shape[0]
-            pad_length = pad_max - seqs.shape[1]
-            seqs = torch.nn.functional.pad(seqs, (0, pad_length, 0, pad_batch))
+            pad_batch = decode_batch_size - seqs.shape[0]
+            pad_beams = top_beams - seqs.shape[1]
+            pad_length = pad_max - seqs.shape[2]
+            seqs = torch.nn.functional.pad(
+                seqs, (0, pad_length, 0, pad_beams, 0, pad_batch))
 
             # Synchronization
             size.zero_()
@@ -259,16 +264,27 @@ def main(args):
             if dist.get_rank() != 0:
                 continue
 
-            for i in range(params.decode_batch_size):
+            for i in range(decode_batch_size):
                 for j in range(dist.get_world_size()):
-                    n = size[j]
-                    seq = convert_to_string(t_list[j][i], params)
+                    for k in range(top_beams):
+                        n = size[j]
+                        seq = convert_to_string(t_list[j][i][k], params)
 
-                    if i >= n:
-                        continue
+                        if i >= n:
+                            continue
 
-                    fd.write(seq)
-                    fd.write(b"\n")
+                        if top_beams == 1:
+                            fd.write(seq)
+                            fd.write(b"\n")
+                        else:
+                            fd.write(str(idx).encode("utf-8"))
+                            fd.write(b"\t")
+                            fd.write(str(k).encode("utf-8"))
+                            fd.write(b"\t")
+                            fd.write(seq)
+                            fd.write(b"\n")
+
+                    idx = idx + 1
 
             t = time.time() - t
             print("Finished batch: %d (%.3f sec)" % (counter, t))

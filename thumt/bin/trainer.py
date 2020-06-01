@@ -115,6 +115,7 @@ def default_params():
         beam_size=4,
         decode_batch_size=32,
         decode_alpha=0.6,
+        decode_ratio=1.0,
         decode_length=50,
         validation="",
         references="",
@@ -256,6 +257,8 @@ def get_learning_rate_schedule(params):
             params.warmup_steps, params.start_decay_step,
             params.end_decay_step,
             dist.get_world_size())
+    elif params.learning_rate_schedule == "constant":
+        schedule = params.learning_rate
     else:
         raise ValueError("Unknown schedule %s" % params.learning_rate_schedule)
 
@@ -342,11 +345,17 @@ def main(args):
                                              beta_1=params.adam_beta1,
                                              beta_2=params.adam_beta2,
                                              epsilon=params.adam_epsilon,
-                                             clipper=clipper)
+                                             clipper=clipper,
+                                             summaries=params.save_summary)
     elif params.optimizer.lower() == "adadelta":
         optimizer = optimizers.AdadeltaOptimizer(
             learning_rate=schedule, rho=params.adadelta_rho,
-            epsilon=params.adadelta_epsilon, clipper=clipper)
+            epsilon=params.adadelta_epsilon, clipper=clipper,
+            summaries=params.save_summary)
+    elif params.optimizer.lower() == "sgd":
+        optimizer = optimizers.SGDOptimizer(
+            learning_rate=schedule, clipper=clipper,
+            summaries=params.save_summary)
     else:
         raise ValueError("Unknown optimizer %s" % params.optimizer)
 
@@ -396,16 +405,12 @@ def main(args):
         return loss
 
     counter = 0
-    should_save = False
-    should_eval = False
 
     while True:
         for features in dataset:
             if counter % params.update_cycle == 0:
                 step += 1
                 utils.set_global_step(step)
-                should_save = True
-                should_eval = True
 
             counter += 1
             t = time.time()
@@ -426,30 +431,23 @@ def main(args):
             print("epoch = %d, step = %d, loss = %.3f (%.3f sec)" %
                   (epoch + 1, step, float(loss), t))
 
-            # Evaluate model
-            if step % params.eval_steps == 0:
-                if should_eval:
-                    utils.evaluate(model, eval_dataset, params.output,
-                                  references, params)
-                    should_eval = False
-
-            if step % params.save_checkpoint_steps == 0:
-                if should_save:
-                    save_checkpoint(step, epoch, model, optimizer, params)
-                    should_save = False
-
-            if step >= params.train_steps:
-                if should_save:
-                    save_checkpoint(step, epoch, model, optimizer, params)
-
-                if should_eval:
+            if counter % params.update_cycle == 0:
+                if step >= params.train_steps:
                     utils.evaluate(model, eval_dataset, params.output,
                                    references, params)
+                    save_checkpoint(step, epoch, model, optimizer, params)
 
-                if dist.get_rank() == 0:
-                    summary.close()
+                    if dist.get_rank() == 0:
+                        summary.close()
 
-                return
+                    return
+
+                if step % params.eval_steps == 0:
+                    utils.evaluate(model, eval_dataset, params.output,
+                                  references, params)
+
+                if step % params.save_checkpoint_steps == 0:
+                    save_checkpoint(step, epoch, model, optimizer, params)
 
         epoch += 1
 

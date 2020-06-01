@@ -164,6 +164,7 @@ def beam_search(models, features, params):
     beam_size = params.beam_size
     top_beams = params.top_beams
     alpha = params.decode_alpha
+    decode_ratio = params.decode_ratio
     decode_length = params.decode_length
 
     pad_id = params.lookup["target"][params.pad.encode("utf-8")]
@@ -186,7 +187,8 @@ def beam_search(models, features, params):
         funcs.append(model.decode)
 
     # For source sequence length
-    max_length = features["source_mask"].sum(1).long() + decode_length
+    max_length = features["source_mask"].sum(1) * decode_ratio
+    max_length = max_length.long() + decode_length
     max_step = max_length.max()
     # [batch, beam_size]
     max_length = torch.unsqueeze(max_length, 1).repeat([1, beam_size])
@@ -247,10 +249,8 @@ def beam_search(models, features, params):
     final_seqs = final_state.finish[1]
     final_scores = final_state.finish[2]
 
-    final_seqs = torch.where(final_flags.any(1)[:, None, None], final_seqs,
-                             alive_seqs)
-    final_scores = torch.where(final_flags.any(1)[:, None, None], final_scores,
-                               alive_scores)
+    final_seqs = torch.where(final_flags[:, :, None], final_seqs, alive_seqs)
+    final_scores = torch.where(final_flags, final_scores, alive_scores)
 
     # Append extra <eos>
     final_seqs = torch.nn.functional.pad(final_seqs, (0, 1, 0, 0, 0, 0),
