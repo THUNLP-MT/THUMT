@@ -192,14 +192,15 @@ def main(args):
 
         if len(args.input) == 1:
             mode = "infer"
-            dataset = data.get_dataset(args.input[0], mode, params)
+            sorted_key, dataset = data.get_dataset(
+                args.input[0], mode, params)
         else:
             # Teacher-forcing
             mode = "eval"
             dataset = data.get_dataset(args.input, mode, params)
+            sorted_key = None
 
         iterator = iter(dataset)
-        idx = 0
         counter = 0
         pad_max = 1024
         top_beams = params.top_beams
@@ -209,11 +210,8 @@ def main(args):
         size = torch.zeros([dist.get_world_size()]).long()
         t_list = [torch.empty([decode_batch_size, top_beams, pad_max]).long()
                   for _ in range(dist.get_world_size())]
-
-        if dist.get_rank() == 0:
-            fd = open(args.output, "wb")
-        else:
-            fd = None
+        
+        all_outputs = []
 
         while True:
             try:
@@ -266,31 +264,41 @@ def main(args):
 
             for i in range(decode_batch_size):
                 for j in range(dist.get_world_size()):
+                    beam_seqs = []
+                    pad_flag = i >= size[j]
                     for k in range(top_beams):
-                        n = size[j]
                         seq = convert_to_string(t_list[j][i][k], params)
 
-                        if i >= n:
+                        if pad_flag:
                             continue
-
-                        if top_beams == 1:
-                            fd.write(seq)
-                            fd.write(b"\n")
-                        else:
-                            fd.write(str(idx).encode("utf-8"))
-                            fd.write(b"\t")
-                            fd.write(str(k).encode("utf-8"))
-                            fd.write(b"\t")
-                            fd.write(seq)
-                            fd.write(b"\n")
-
-                    idx = idx + 1
+                        
+                        beam_seqs.append(seq)
+                    
+                    if pad_flag:
+                        continue
+                    
+                    all_outputs.append(beam_seqs)
 
             t = time.time() - t
             print("Finished batch: %d (%.3f sec)" % (counter, t))
 
         if dist.get_rank() == 0:
-            fd.close()
+            restored_outputs = []
+            if sorted_key is not None:
+                for idx in range(len(all_outputs)):
+                    restored_outputs.append(all_outputs[sorted_key[idx]])
+            else:
+                restored_outputs = all_outputs
+            
+            with open(args.output, "wb") as fd:
+                if top_beams == 1:
+                    for seqs in restored_outputs:
+                        fd.write(seqs[0] + b"\n")
+                else:
+                    for idx, seqs in enumerate(restored_outputs):
+                        for k, seq in enumerate(seqs):
+                            fd.write(b"%d\t%d\t" % (idx, k))
+                            fd.write(seq + b"\n")
 
 
 # Wrap main function

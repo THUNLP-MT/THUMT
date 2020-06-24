@@ -7,6 +7,26 @@ from __future__ import print_function
 
 import torch
 import tensorflow as tf
+import operator
+
+
+def sort_input_file(filename, reverse=True):
+    with open(filename, "rb") as fd:
+        inputs = [line.strip() for line in fd]
+    
+    input_lens = [
+        (i, len(line.split())) for i, line in enumerate(inputs)]
+    
+    sorted_input_lens = sorted(input_lens, key=lambda x: x[1],
+                               reverse=reverse)
+    sorted_keys = {}
+    sorted_inputs = []
+    
+    for i, (idx, _) in enumerate(sorted_input_lens):
+        sorted_inputs.append(inputs[idx])
+        sorted_keys[idx] = i
+    
+    return sorted_keys, sorted_inputs
 
 
 def build_input_fn(filenames, mode, params):
@@ -167,7 +187,9 @@ def build_input_fn(filenames, mode, params):
         return dataset
 
     def infer_input_fn():
-        dataset = tf.data.TextLineDataset(filenames)
+        sorted_key, sorted_data = sort_input_file(filenames)
+        dataset = tf.data.Dataset.from_tensor_slices(
+            tf.constant(sorted_data))
         dataset = dataset.shard(torch.distributed.get_world_size(),
                                 torch.distributed.get_rank())
 
@@ -204,7 +226,7 @@ def build_input_fn(filenames, mode, params):
             },
             num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-        return dataset
+        return sorted_key, dataset
 
     if mode == "train":
         return train_input_fn
