@@ -370,9 +370,11 @@ def main(args):
     dataset = data.get_dataset(params.input, "train", params)
 
     if params.validation:
-        eval_dataset = data.get_dataset(params.validation, "infer", params)
+        sorted_key, eval_dataset = data.get_dataset(
+            params.validation, "infer", params)
         references = load_references(params.references)
     else:
+        sorted_key = None
         eval_dataset = None
         references = None
 
@@ -433,8 +435,8 @@ def main(args):
 
             if counter % params.update_cycle == 0:
                 if step >= params.train_steps:
-                    utils.evaluate(model, eval_dataset, params.output,
-                                   references, params)
+                    utils.evaluate(model, sorted_key, eval_dataset,
+                                   params.output, references, params)
                     save_checkpoint(step, epoch, model, optimizer, params)
 
                     if dist.get_rank() == 0:
@@ -443,8 +445,8 @@ def main(args):
                     return
 
                 if step % params.eval_steps == 0:
-                    utils.evaluate(model, eval_dataset, params.output,
-                                  references, params)
+                    utils.evaluate(model, sorted_key, eval_dataset,
+                                   params.output, references, params)
 
                 if step % params.save_checkpoint_steps == 0:
                     save_checkpoint(step, epoch, model, optimizer, params)

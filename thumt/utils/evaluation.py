@@ -112,7 +112,7 @@ def _convert_to_string(tensor, params):
     return output
 
 
-def _evaluate_model(model, dataset, references, params):
+def _evaluate_model(model, sorted_key, dataset, references, params):
     # Create model
     with torch.no_grad():
         model.eval()
@@ -182,12 +182,17 @@ def _evaluate_model(model, dataset, references, params):
     model.train()
 
     if dist.get_rank() == 0:
-        return bleu(results, references)
-    else:
-        return 0.0
+        restored_results = []
+
+        for idx in range(len(results)):
+            restored_results.append(results[sorted_key[idx]])
+
+        return bleu(restored_results, references)
+    
+    return 0.0
 
 
-def evaluate(model, dataset, base_dir, references, params):
+def evaluate(model, sorted_key, dataset, base_dir, references, params):
     if not references:
         return
 
@@ -216,7 +221,7 @@ def evaluate(model, dataset, base_dir, references, params):
     if dist.get_rank() == 0:
         print("Validating model at step %d" % global_step)
 
-    score = _evaluate_model(model, dataset, references, params)
+    score = _evaluate_model(model, sorted_key, dataset, references, params)
 
     # Save records
     if dist.get_rank() == 0:
