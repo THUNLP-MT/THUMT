@@ -97,7 +97,7 @@ def default_params():
         pattern="",
         clipping="global_norm",
         clip_grad_norm=5.0,
-        learning_rate=1.0,
+        learning_rate=7e-4,
         learning_rate_schedule="linear_warmup_rsqrt_decay",
         learning_rate_boundaries=[0],
         learning_rate_values=[0.0],
