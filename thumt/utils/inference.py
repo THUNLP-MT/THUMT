@@ -81,7 +81,7 @@ def _get_inference_fn(model_fns, features):
 
 
 def _beam_search_step(time, func, state, batch_size, beam_size, alpha,
-                      pad_id, eos_id, max_length, inf=-1e9):
+                      pad_id, eos_id, min_length, max_length, inf=-1e9):
     # Compute log probabilities
     seqs, log_probs = state.inputs[:2]
     flat_seqs = _merge_first_two_dims(seqs)
@@ -97,6 +97,10 @@ def _beam_search_step(time, func, state, batch_size, beam_size, alpha,
     length_penalty = ((5.0 + float(time + 1)) / 6.0) ** alpha
     curr_scores = curr_log_probs / length_penalty
     vocab_size = curr_scores.shape[-1]
+
+    # Prevent null translation
+    min_length_flags = torch.ge(min_length, time + 1).float().mul_(inf)
+    curr_scores[:, :, eos_id].add_(min_length_flags)
 
     # Select top-k candidates
     # [batch_size, beam_size * vocab_size]
@@ -192,6 +196,7 @@ def beam_search(models, features, params):
     max_step = max_length.max()
     # [batch, beam_size]
     max_length = torch.unsqueeze(max_length, 1).repeat([1, beam_size])
+    min_length = torch.ones_like(max_length)
 
     # Expand the inputs
     # [batch, length] => [batch * beam_size, length]
@@ -232,7 +237,8 @@ def beam_search(models, features, params):
 
     for time in range(max_step):
         state = _beam_search_step(time, decoding_fn, state, batch_size,
-                                  beam_size, alpha, pad_id, eos_id, max_length)
+                                  beam_size, alpha, pad_id, eos_id,
+                                  min_length, max_length)
         max_penalty = ((5.0 + max_step) / 6.0) ** alpha
         best_alive_score = torch.max(state.inputs[1][:, 0] / max_penalty)
         worst_finished_score = torch.min(state.finish[2])

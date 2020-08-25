@@ -97,7 +97,7 @@ def default_params():
         pattern="",
         clipping="global_norm",
         clip_grad_norm=5.0,
-        learning_rate=7e-4,
+        learning_rate=1.0,
         learning_rate_schedule="linear_warmup_rsqrt_decay",
         learning_rate_boundaries=[0],
         learning_rate_values=[0.0],
@@ -207,16 +207,45 @@ def collect_params(all_params, params):
     return collected
 
 
-def print_variables(model):
+def print_variables(model, pattern, log=True):
+    flags = []
+
+    for (name, var) in model.named_parameters():
+        if re.search(pattern, name):
+            flags.append(True)
+        else:
+            flags.append(False)
+
     weights = {v[0]: v[1] for v in model.named_parameters()}
     total_size = 0
 
     for name in sorted(list(weights)):
-        v = weights[name]
-        print("%s %s" % (name.ljust(60), str(list(v.shape)).rjust(15)))
-        total_size += v.nelement()
+        if re.search(pattern, name):
+            v = weights[name]
+            total_size += v.nelement()
 
-    print("Total trainable variables size: %d" % total_size)
+            if log:
+                print("%s %s" % (name.ljust(60), str(list(v.shape)).rjust(15)))
+
+    if log:
+        print("Total trainable variables size: %d" % total_size)
+
+    return flags
+
+
+def exclude_variables(flags, grads_and_vars):
+    idx = 0
+    new_grads = []
+    new_vars = []
+
+    for grad, (name, var) in grads_and_vars:
+        if flags[idx]:
+            new_grads.append(grad)
+            new_vars.append((name, var))
+
+        idx += 1
+
+    return zip(new_grads, new_vars)
 
 
 def save_checkpoint(step, epoch, model, optimizer, params):
@@ -364,8 +393,8 @@ def main(args):
 
     optimizer = optimizers.MultiStepOptimizer(optimizer, params.update_cycle)
 
-    if dist.get_rank() == 0:
-        print_variables(model)
+    trainable_flags = print_variables(model, params.pattern,
+                                      dist.get_rank() == 0)
 
     dataset = data.get_dataset(params.input, "train", params)
 
@@ -420,8 +449,8 @@ def main(args):
             loss = train_fn(features)
             gradients = optimizer.compute_gradients(loss,
                                                     list(model.parameters()))
-            grads_and_vars = optimizers.exclude_variables(
-                params.pattern,
+            grads_and_vars = exclude_variables(
+                trainable_flags,
                 zip(gradients, list(model.named_parameters())))
             optimizer.apply_gradients(grads_and_vars)
 

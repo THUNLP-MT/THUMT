@@ -47,24 +47,6 @@ def _compute_grad_norm(gradients):
     return float(total_norm ** 0.5)
 
 
-def exclude_variables(pattern, grads_and_vars):
-    if not pattern:
-        return grads_and_vars
-
-    pattern = re.compile(pattern)
-    new_grads = []
-    new_vars = []
-
-    for grad, (name, var) in grads_and_vars:
-        if re.search(pattern, var.tensor_name):
-            continue
-        else:
-            new_grads.append(grad)
-            new_vars.append((name, var))
-
-    return zip(new_grads, new_vars)
-
-
 class Optimizer(object):
 
     def __init__(self, name, **kwargs):
@@ -183,7 +165,6 @@ class SGDOptimizer(Optimizer):
         return state
 
     def load_state_dict(self, state):
-        self._learning_rate = state.get("learning_rate", self._learning_rate)
         self._iterations = state.get("iterations", self._iterations)
 
 
@@ -275,10 +256,6 @@ class AdamOptimizer(Optimizer):
         return state
 
     def load_state_dict(self, state):
-        self._learning_rate = state.get("learning_rate", self._learning_rate)
-        self._beta_1 = state.get("beta_1", self._beta_1)
-        self._beta_2 = state.get("beta_2", self._beta_2)
-        self._epsilon = state.get("epsilon", self._epsilon)
         self._iterations = state.get("iterations", self._iterations)
 
         slots = state.get("slot", {})
@@ -376,9 +353,6 @@ class AdadeltaOptimizer(Optimizer):
         return state
 
     def load_state_dict(self, state):
-        self._learning_rate = state.get("learning_rate", self._learning_rate)
-        self._rho = state.get("rho", self._rho)
-        self._epsilon = state.get("epsilon", self._epsilon)
         self._iterations = state.get("iterations", self._iterations)
 
         slots = state.get("slot", {})
@@ -470,10 +444,6 @@ class LossScalingOptimizer(Optimizer):
         return state
 
     def load_state_dict(self, state):
-        self._scale = state.get("scale", self._scale)
-        self._increment_period = state.get("increment_period",
-                                           self._increment_period)
-        self._multiplier = state.get("multiplier", self._multiplier)
         self._num_good_steps = state.get("num_good_steps",
                                          self._num_good_steps)
         self._optimizer.load_state_dict(state.get("optimizer", {}))
@@ -525,7 +495,5 @@ class MultiStepOptimizer(Optimizer):
         return state
 
     def load_state_dict(self, state):
-        self._n = state.get("n", self._n)
         self._iterations = state.get("iterations", self._iterations)
-        self._compress = state.get("compress", self._iterations)
         self._optimizer.load_state_dict(state.get("optimizer", {}))
