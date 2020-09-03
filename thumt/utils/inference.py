@@ -54,7 +54,7 @@ def _get_inference_fn(model_fns, features):
             "source": features["source"],
             "source_mask": features["source_mask"],
             "target": inputs,
-            "target_mask": torch.ones(*inputs.shape).float().cuda()
+            "target_mask": torch.ones(*inputs.shape).to(inputs).float()
         }
 
         outputs = []
