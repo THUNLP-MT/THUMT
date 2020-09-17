@@ -42,6 +42,9 @@ def _compute_grad_norm(gradients):
     total_norm = 0.0
 
     for grad in gradients:
+        if grad is None:
+            continue
+
         total_norm += float(grad.data.norm() ** 2)
 
     return float(total_norm ** 0.5)
@@ -148,10 +151,10 @@ class SGDOptimizer(Optimizer):
             step_size = lr
 
             if var.dtype == torch.float32:
-                var.data.add_(-step_size, grad)
+                var.data.add_(grad, alpha=-step_size)
             else:
                 fp32_var = var.data.float()
-                fp32_var.add_(-step_size, grad)
+                fp32_var.add_(grad, alpha=-step_size)
                 var.data.copy_(fp32_var)
 
     def state_dict(self):
@@ -225,8 +228,8 @@ class AdamOptimizer(Optimizer):
             bias_corr_1 = 1 - beta_1 ** self._iterations
             bias_corr_2 = 1 - beta_2 ** self._iterations
 
-            m.mul_(beta_1).add_(1 - beta_1, grad)
-            v.mul_(beta_2).addcmul_(1 - beta_2, grad, grad)
+            m.mul_(beta_1).add_(grad, alpha=1 - beta_1)
+            v.mul_(beta_2).addcmul_(grad, grad, value=1 - beta_2)
             denom = (v.sqrt() / math.sqrt(bias_corr_2)).add_(epsilon)
 
             if isinstance(lr, LearningRateSchedule):
@@ -235,10 +238,10 @@ class AdamOptimizer(Optimizer):
             step_size = lr / bias_corr_1
 
             if var.dtype == torch.float32:
-                var.data.addcdiv_(-step_size, m, denom)
+                var.data.addcdiv_(m, denom, value=-step_size)
             else:
                 fp32_var = var.data.float()
-                fp32_var.addcdiv_(-step_size, m, denom)
+                fp32_var.addcdiv_(m, denom, value=-step_size)
                 var.data.copy_(fp32_var)
 
     def state_dict(self):
@@ -327,16 +330,16 @@ class AdadeltaOptimizer(Optimizer):
             if isinstance(lr, LearningRateSchedule):
                 lr = lr(self._iterations)
 
-            square_avg.mul_(rho).addcmul_(1 - rho, grad, grad)
+            square_avg.mul_(rho).addcmul_(grad, grad, value=1 - rho)
             std = square_avg.add(epsilon).sqrt_()
             delta = acc_delta.add(epsilon).sqrt_().div_(std).mul_(grad)
-            acc_delta.mul_(rho).addcmul_(1 - rho, delta, delta)
+            acc_delta.mul_(rho).addcmul_(delta, delta, value=1 - rho)
 
             if var.dtype == torch.float32:
-                var.data.add_(-lr, delta)
+                var.data.add_(delta, alpha=-lr)
             else:
                 fp32_var = var.data.float()
-                fp32_var.add_(-lr, delta)
+                fp32_var.add_(delta, alpha=-lr)
                 var.data.copy_(fp32_var)
 
     def state_dict(self):
