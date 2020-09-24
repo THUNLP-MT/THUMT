@@ -68,7 +68,7 @@ class Optimizer(object):
                 grad.mul_(scale)
 
     def sync_gradients(self, gradients, compress=True):
-        grad_vec = torch.nn.utils.parameters_to_vector(gradients)
+        grad_vec = utils.params_to_vec(gradients)
 
         if compress:
             grad_vec_half = grad_vec.half()
@@ -77,7 +77,7 @@ class Optimizer(object):
         else:
             dist.all_reduce(grad_vec)
 
-        torch.nn.utils.vector_to_parameters(grad_vec, gradients)
+        utils.vec_to_params(grad_vec, gradients)
 
     def zero_gradients(self, gradients):
         for grad in gradients:
