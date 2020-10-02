@@ -61,15 +61,15 @@ def latest_checkpoint(path):
 def save(state, path, max_to_keep=None):
     checkpoints = glob.glob(os.path.join(path, "*.pt"))
 
-    if max_to_keep and len(checkpoints) >= max_to_keep:
-        checkpoint = oldest_checkpoint(path)
-        os.remove(checkpoint)
-
     if not checkpoints:
         counter = 1
     else:
         checkpoint = latest_checkpoint(path)
         counter = int(checkpoint.rstrip(".pt").split("-")[-1]) + 1
+
+    if max_to_keep and len(checkpoints) >= max_to_keep:
+        checkpoint = oldest_checkpoint(path)
+        os.remove(checkpoint)
 
     checkpoint = os.path.join(path, "model-%d.pt" % counter)
     print("Saving checkpoint: %s" % checkpoint)
