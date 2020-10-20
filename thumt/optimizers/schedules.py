@@ -29,11 +29,15 @@ class LinearWarmupRsqrtDecay(LearningRateSchedule):
                  summary=True):
         super(LinearWarmupRsqrtDecay, self).__init__()
 
-        if not initial_learning_rate:
+        if initial_learning_rate <= 0:
             if warmup_steps > 0:
                 initial_learning_rate = learning_rate / warmup_steps
             else:
                 initial_learning_rate = 0.0
+        elif initial_learning_rate >= learning_rate:
+            raise ValueError("The maximum learning rate: %f must be "
+                             "higher than the initial learning rate:"
+                             " %f" % (learning_rate, initial_learning_rate))
 
         self._initial_learning_rate = initial_learning_rate
         self._maximum_learning_rate = learning_rate
@@ -69,7 +73,7 @@ class LinearWarmupRsqrtDecay(LearningRateSchedule):
 
 class PiecewiseConstantDecay(LearningRateSchedule):
 
-    def __init__(self, boundaries, values, summary=True, name=None):
+    def __init__(self, boundaries, values, summary=True):
         super(PiecewiseConstantDecay, self).__init__()
 
         if len(boundaries) != len(values) - 1:

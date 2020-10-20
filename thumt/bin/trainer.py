@@ -98,6 +98,7 @@ def default_params():
         clipping="global_norm",
         clip_grad_norm=5.0,
         learning_rate=1.0,
+        initial_learning_rate=0.0,
         learning_rate_schedule="linear_warmup_rsqrt_decay",
         learning_rate_boundaries=[0],
         learning_rate_values=[0.0],
@@ -276,16 +277,19 @@ def broadcast(model):
 
 def get_learning_rate_schedule(params):
     if params.learning_rate_schedule == "linear_warmup_rsqrt_decay":
-        schedule = optimizers.LinearWarmupRsqrtDecay(params.learning_rate,
-                                                     params.warmup_steps)
+        schedule = optimizers.LinearWarmupRsqrtDecay(
+            params.learning_rate, params.warmup_steps,
+            initial_learning_rate=params.initial_learning_rate,
+            summary=params.save_summary)
     elif params.learning_rate_schedule == "piecewise_constant_decay":
         schedule = optimizers.PiecewiseConstantDecay(
-            params.learning_rate_boundaries, params.learning_rate_values)
+            params.learning_rate_boundaries, params.learning_rate_values,
+            summary=params.save_summary)
     elif params.learning_rate_schedule == "linear_exponential_decay":
-        schedule = optimizers.LinearExponentialDecay(params.learning_rate,
-            params.warmup_steps, params.start_decay_step,
-            params.end_decay_step,
-            dist.get_world_size())
+        schedule = optimizers.LinearExponentialDecay(
+            params.learning_rate, params.warmup_steps,
+            params.start_decay_step, params.end_decay_step,
+            dist.get_world_size(), summary=params.save_summary)
     elif params.learning_rate_schedule == "constant":
         schedule = params.learning_rate
     else:
@@ -305,6 +309,29 @@ def get_clipper(params):
         raise ValueError("Unknown clipper %s" % params.clipping)
 
     return clipper
+
+
+def get_optimizer(params, schedule, clipper):
+    if params.optimizer.lower() == "adam":
+        optimizer = optimizers.AdamOptimizer(learning_rate=schedule,
+                                             beta_1=params.adam_beta1,
+                                             beta_2=params.adam_beta2,
+                                             epsilon=params.adam_epsilon,
+                                             clipper=clipper,
+                                             summaries=params.save_summary)
+    elif params.optimizer.lower() == "adadelta":
+        optimizer = optimizers.AdadeltaOptimizer(
+            learning_rate=schedule, rho=params.adadelta_rho,
+            epsilon=params.adadelta_epsilon, clipper=clipper,
+            summaries=params.save_summary)
+    elif params.optimizer.lower() == "sgd":
+        optimizer = optimizers.SGDOptimizer(
+            learning_rate=schedule, clipper=clipper,
+            summaries=params.save_summary)
+    else:
+        raise ValueError("Unknown optimizer %s" % params.optimizer)
+
+    return optimizer
 
 
 def load_references(pattern):
@@ -368,25 +395,7 @@ def main(args):
 
     schedule = get_learning_rate_schedule(params)
     clipper = get_clipper(params)
-
-    if params.optimizer.lower() == "adam":
-        optimizer = optimizers.AdamOptimizer(learning_rate=schedule,
-                                             beta_1=params.adam_beta1,
-                                             beta_2=params.adam_beta2,
-                                             epsilon=params.adam_epsilon,
-                                             clipper=clipper,
-                                             summaries=params.save_summary)
-    elif params.optimizer.lower() == "adadelta":
-        optimizer = optimizers.AdadeltaOptimizer(
-            learning_rate=schedule, rho=params.adadelta_rho,
-            epsilon=params.adadelta_epsilon, clipper=clipper,
-            summaries=params.save_summary)
-    elif params.optimizer.lower() == "sgd":
-        optimizer = optimizers.SGDOptimizer(
-            learning_rate=schedule, clipper=clipper,
-            summaries=params.save_summary)
-    else:
-        raise ValueError("Unknown optimizer %s" % params.optimizer)
+    optimizer = get_optimizer(params, schedule, clipper)
 
     if args.half:
         optimizer = optimizers.LossScalingOptimizer(optimizer)

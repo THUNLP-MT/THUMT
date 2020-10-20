@@ -168,13 +168,18 @@ def main(args):
         for i in range(len(model_cls_list))]
 
     params = params_list[0]
-    dist.init_process_group(
-        "nccl", init_method=args.url, rank=args.local_rank,
-        world_size=1 if args.cpu else len(params.device_list))
 
     if args.cpu:
+        dist.init_process_group("gloo", 
+                                init_method=args.url,
+                                rank=args.local_rank,
+                                world_size=1)
         torch.set_default_tensor_type(torch.FloatTensor)
     else:
+        dist.init_process_group("nccl",
+                                init_method=args.url,
+                                rank=args.local_rank,
+                                world_size=len(params.device_list))
         torch.cuda.set_device(params.device_list[args.local_rank])
         torch.set_default_tensor_type(torch.cuda.FloatTensor)
 
