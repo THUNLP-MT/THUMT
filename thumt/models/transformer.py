@@ -304,7 +304,11 @@ class Transformer(modules.Module):
         state = self.encode(features, state)
         logits, _ = self.decode(features, state, mode=mode)
         loss = self.criterion(logits, labels)
-        mask = mask.to(logits)
+        mask = mask.to(torch.float32)
+
+        # Prevent FP16 overflow
+        if loss.dtype == torch.float16:
+            loss = loss.to(torch.float32)
 
         if mode == "eval":
             if level == "sentence":
@@ -312,7 +316,7 @@ class Transformer(modules.Module):
             else:
                 return  torch.exp(-loss) * mask - (1 - mask)
 
-        return torch.sum(loss * mask) / torch.sum(mask)
+        return (torch.sum(loss * mask) / torch.sum(mask)).to(logits)
 
     def empty_state(self, batch_size, device):
         state = {
