@@ -101,9 +101,11 @@ def _convert_to_string(tensor, params):
     ids = tensor.tolist()
 
     output = []
+    
+    eos_id = params.lookup["target"][params.eos.encode("utf-8")]
 
     for wid in ids:
-        if wid == 1:
+        if wid == eos_id:
             break
         output.append(params.mapping["target"][wid])
 
