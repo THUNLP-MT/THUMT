@@ -1,16 +1,46 @@
 # coding=utf-8
-# Copyright 2017-2019 The THUMT Authors
+# Copyright 2017-2020 The THUMT Authors
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import copy
+import math
+import torch
 import tensorflow as tf
-import thumt.utils.common as utils
 
 from collections import namedtuple
-from tensorflow.python.util import nest
+from thumt.utils.nest import map_structure
+
+
+def _merge_first_two_dims(tensor):
+    shape = list(tensor.shape)
+    shape[1] *= shape[0]
+    return torch.reshape(tensor, shape[1:])
+
+
+def _split_first_two_dims(tensor, dim_0, dim_1):
+    shape = [dim_0, dim_1] + list(tensor.shape)[1:]
+    return torch.reshape(tensor, shape)
+
+
+def _tile_to_beam_size(tensor, beam_size):
+    tensor = torch.unsqueeze(tensor, 1)
+    tile_dims = [1] * int(tensor.dim())
+    tile_dims[1] = beam_size
+
+    return tensor.repeat(tile_dims)
+
+
+def _gather_2d(params, indices, name=None):
+    batch_size = params.shape[0]
+    range_size = indices.shape[1]
+    batch_pos = torch.arange(batch_size * range_size, device=params.device)
+    batch_pos = batch_pos // range_size
+    batch_pos = torch.reshape(batch_pos, [batch_size, range_size])
+    output = params[batch_pos, indices]
+
+    return output
 
 
 class BeamSearchState(namedtuple("BeamSearchState",
@@ -22,11 +52,9 @@ def _get_inference_fn(model_fns, features):
     def inference_fn(inputs, state):
         local_features = {
             "source": features["source"],
-            "source_length": features["source_length"],
-            # [bos_id, ...] => [..., 0]
-            "target": tf.pad(inputs[:, 1:], [[0, 0], [0, 1]]),
-            "target_length": tf.fill([tf.shape(inputs)[0]],
-                                     tf.shape(inputs)[1])
+            "source_mask": features["source_mask"],
+            "target": inputs,
+            "target_mask": torch.ones(*inputs.shape).to(inputs).float()
         }
 
         outputs = []
@@ -34,88 +62,95 @@ def _get_inference_fn(model_fns, features):
 
         for (model_fn, model_state) in zip(model_fns, state):
             if model_state:
-                output, new_state = model_fn(local_features, model_state)
-                outputs.append(output)
+                logits, new_state = model_fn(local_features, model_state)
+                outputs.append(torch.nn.functional.log_softmax(logits,
+                                                               dim=-1))
                 next_state.append(new_state)
             else:
-                output = model_fn(local_features)
-                outputs.append(output)
+                logits = model_fn(local_features)
+                outputs.append(torch.nn.functional.log_softmax(logits,
+                                                               dim=-1))
                 next_state.append({})
 
         # Ensemble
-        log_prob = tf.add_n(outputs) / float(len(outputs))
+        log_prob = sum(outputs) / float(len(outputs))
 
-        return log_prob, next_state
+        return log_prob.float(), next_state
 
     return inference_fn
 
 
 def _beam_search_step(time, func, state, batch_size, beam_size, alpha,
-                      pad_id, eos_id):
+                      pad_id, eos_id, min_length, max_length, inf=-1e9):
     # Compute log probabilities
     seqs, log_probs = state.inputs[:2]
-    flat_seqs = utils.merge_first_two_dims(seqs)
-    flat_state = nest.map_structure(lambda x: utils.merge_first_two_dims(x),
-                                    state.state)
+    flat_seqs = _merge_first_two_dims(seqs)
+    flat_state = map_structure(lambda x: _merge_first_two_dims(x), state.state)
     step_log_probs, next_state = func(flat_seqs, flat_state)
-    step_log_probs = utils.split_first_two_dims(step_log_probs, batch_size,
-                                                beam_size)
-    next_state = nest.map_structure(
-        lambda x: utils.split_first_two_dims(x, batch_size, beam_size),
-        next_state)
-    curr_log_probs = tf.expand_dims(log_probs, 2) + step_log_probs
+    step_log_probs = _split_first_two_dims(step_log_probs, batch_size,
+                                           beam_size)
+    next_state = map_structure(
+        lambda x: _split_first_two_dims(x, batch_size, beam_size), next_state)
+    curr_log_probs = torch.unsqueeze(log_probs, 2) + step_log_probs
 
     # Apply length penalty
-    length_penalty = tf.pow((5.0 + tf.to_float(time + 1)) / 6.0, alpha)
+    length_penalty = ((5.0 + float(time + 1)) / 6.0) ** alpha
     curr_scores = curr_log_probs / length_penalty
-    vocab_size = curr_scores.shape[-1].value or tf.shape(curr_scores)[-1]
+    vocab_size = curr_scores.shape[-1]
+
+    # Prevent null translation
+    min_length_flags = torch.ge(min_length, time + 1).float().mul_(inf)
+    curr_scores[:, :, eos_id].add_(min_length_flags)
 
     # Select top-k candidates
     # [batch_size, beam_size * vocab_size]
-    curr_scores = tf.reshape(curr_scores, [-1, beam_size * vocab_size])
+    curr_scores = torch.reshape(curr_scores, [-1, beam_size * vocab_size])
     # [batch_size, 2 * beam_size]
-    top_scores, top_indices = tf.nn.top_k(curr_scores, k=2 * beam_size)
+    top_scores, top_indices = torch.topk(curr_scores, k=2*beam_size)
     # Shape: [batch_size, 2 * beam_size]
     beam_indices = top_indices // vocab_size
     symbol_indices = top_indices % vocab_size
     # Expand sequences
     # [batch_size, 2 * beam_size, time]
-    candidate_seqs = utils.gather_2d(seqs, beam_indices)
-    candidate_seqs = tf.concat([candidate_seqs,
-                                tf.expand_dims(symbol_indices, 2)], 2)
+    candidate_seqs = _gather_2d(seqs, beam_indices)
+    candidate_seqs = torch.cat([candidate_seqs,
+                                torch.unsqueeze(symbol_indices, 2)], 2)
 
     # Expand sequences
     # Suppress finished sequences
-    flags = tf.equal(symbol_indices, eos_id)
+    flags = torch.eq(symbol_indices, eos_id).to(torch.bool)
     # [batch, 2 * beam_size]
-    alive_scores = top_scores + tf.to_float(flags) * tf.float32.min
+    alive_scores = top_scores + flags.to(torch.float32) * inf
     # [batch, beam_size]
-    alive_scores, alive_indices = tf.nn.top_k(alive_scores, beam_size)
-    alive_symbols = utils.gather_2d(symbol_indices, alive_indices)
-    alive_indices = utils.gather_2d(beam_indices, alive_indices)
-    alive_seqs = utils.gather_2d(seqs, alive_indices)
+    alive_scores, alive_indices = torch.topk(alive_scores, beam_size)
+    alive_symbols = _gather_2d(symbol_indices, alive_indices)
+    alive_indices = _gather_2d(beam_indices, alive_indices)
+    alive_seqs = _gather_2d(seqs, alive_indices)
     # [batch_size, beam_size, time + 1]
-    alive_seqs = tf.concat([alive_seqs, tf.expand_dims(alive_symbols, 2)], 2)
-    alive_state = nest.map_structure(
-        lambda x: utils.gather_2d(x, alive_indices),
+    alive_seqs = torch.cat([alive_seqs, torch.unsqueeze(alive_symbols, 2)], 2)
+    alive_state = map_structure(
+        lambda x: _gather_2d(x, alive_indices),
         next_state)
     alive_log_probs = alive_scores * length_penalty
+    # Check length constraint
+    length_flags = torch.le(max_length, time + 1).float()
+    alive_log_probs = alive_log_probs + length_flags * inf
+    alive_scores = alive_scores + length_flags * inf
 
     # Select finished sequences
     prev_fin_flags, prev_fin_seqs, prev_fin_scores = state.finish
     # [batch, 2 * beam_size]
-    step_fin_scores = top_scores + (1.0 - tf.to_float(flags)) * tf.float32.min
+    step_fin_scores = top_scores + (1.0 - flags.to(torch.float32)) * inf
     # [batch, 3 * beam_size]
-    fin_flags = tf.concat([prev_fin_flags, flags], axis=1)
-    fin_scores = tf.concat([prev_fin_scores, step_fin_scores], axis=1)
+    fin_flags = torch.cat([prev_fin_flags, flags], dim=1)
+    fin_scores = torch.cat([prev_fin_scores, step_fin_scores], dim=1)
     # [batch, beam_size]
-    fin_scores, fin_indices = tf.nn.top_k(fin_scores, beam_size)
-    fin_flags = utils.gather_2d(fin_flags, fin_indices)
-    pad_seqs = tf.fill([batch_size, beam_size, 1],
-                       tf.constant(pad_id, tf.int32))
-    prev_fin_seqs = tf.concat([prev_fin_seqs, pad_seqs], axis=2)
-    fin_seqs = tf.concat([prev_fin_seqs, candidate_seqs], axis=1)
-    fin_seqs = utils.gather_2d(fin_seqs, fin_indices)
+    fin_scores, fin_indices = torch.topk(fin_scores, beam_size)
+    fin_flags = _gather_2d(fin_flags, fin_indices)
+    pad_seqs = prev_fin_seqs.new_full([batch_size, beam_size, 1], pad_id)
+    prev_fin_seqs = torch.cat([prev_fin_seqs, pad_seqs], dim=2)
+    fin_seqs = torch.cat([prev_fin_seqs, candidate_seqs], dim=1)
+    fin_seqs = _gather_2d(fin_seqs, fin_indices)
 
     new_state = BeamSearchState(
         inputs=(alive_seqs, alive_log_probs, alive_scores),
@@ -123,143 +158,139 @@ def _beam_search_step(time, func, state, batch_size, beam_size, alpha,
         finish=(fin_flags, fin_seqs, fin_scores),
     )
 
-    return time + 1, new_state
+    return new_state
 
 
-def beam_search(func, state, batch_size, beam_size, max_length, alpha,
-                pad_id, bos_id, eos_id):
-    init_seqs = tf.fill([batch_size, beam_size, 1], bos_id)
-    init_log_probs = tf.constant([[0.] + [tf.float32.min] * (beam_size - 1)])
-    init_log_probs = tf.tile(init_log_probs, [batch_size, 1])
-    init_scores = tf.zeros_like(init_log_probs)
-    fin_seqs = tf.zeros([batch_size, beam_size, 1], tf.int32)
-    fin_scores = tf.fill([batch_size, beam_size], tf.float32.min)
-    fin_flags = tf.zeros([batch_size, beam_size], tf.bool)
-
-    state = BeamSearchState(
-        inputs=(init_seqs, init_log_probs, init_scores),
-        state=state,
-        finish=(fin_flags, fin_seqs, fin_scores),
-    )
-
-    max_step = tf.reduce_max(max_length)
-
-    def _is_finished(t, s):
-        log_probs = s.inputs[1]
-        finished_flags = s.finish[0]
-        finished_scores = s.finish[2]
-        max_lp = tf.pow(((5.0 + tf.to_float(max_step)) / 6.0), alpha)
-        best_alive_score = log_probs[:, 0] / max_lp
-        worst_finished_score = tf.reduce_min(
-            finished_scores * tf.to_float(finished_flags), axis=1)
-        add_mask = 1.0 - tf.to_float(tf.reduce_any(finished_flags, 1))
-        worst_finished_score += tf.float32.min * add_mask
-        bound_is_met = tf.reduce_all(tf.greater(worst_finished_score,
-                                                best_alive_score))
-
-        cond = tf.logical_and(tf.less(t, max_step),
-                              tf.logical_not(bound_is_met))
-
-        return cond
-
-    def _loop_fn(t, s):
-        outs = _beam_search_step(t, func, s, batch_size, beam_size, alpha,
-                                 pad_id, eos_id)
-        return outs
-
-    time = tf.constant(0, name="time")
-    shape_invariants = BeamSearchState(
-        inputs=(tf.TensorShape([None, None, None]),
-                tf.TensorShape([None, None]),
-                tf.TensorShape([None, None])),
-        state=nest.map_structure(utils.infer_shape_invariants, state.state),
-        finish=(tf.TensorShape([None, None]),
-                tf.TensorShape([None, None, None]),
-                tf.TensorShape([None, None]))
-    )
-    outputs = tf.while_loop(_is_finished, _loop_fn, [time, state],
-                            shape_invariants=[tf.TensorShape([]),
-                                              shape_invariants],
-                            parallel_iterations=1,
-                            back_prop=False)
-
-    final_state = outputs[1]
-    alive_seqs = final_state.inputs[0]
-    alive_scores = final_state.inputs[2]
-    final_flags = final_state.finish[0]
-    final_seqs = final_state.finish[1]
-    final_scores = final_state.finish[2]
-
-    alive_seqs.set_shape([None, beam_size, None])
-    final_seqs.set_shape([None, beam_size, None])
-
-    final_seqs = tf.where(tf.reduce_any(final_flags, 1), final_seqs,
-                          alive_seqs)
-    final_scores = tf.where(tf.reduce_any(final_flags, 1), final_scores,
-                            alive_scores)
-
-    return final_seqs, final_scores
-
-
-def create_inference_graph(models, features, params):
+def beam_search(models, features, params):
     if not isinstance(models, (list, tuple)):
         raise ValueError("'models' must be a list or tuple")
 
-    features = copy.copy(features)
-    model_fns = [model.get_inference_func() for model in models]
-
-    decode_length = params.decode_length
     beam_size = params.beam_size
     top_beams = params.top_beams
     alpha = params.decode_alpha
+    decode_ratio = params.decode_ratio
+    decode_length = params.decode_length
+
+    pad_id = params.lookup["target"][params.pad.encode("utf-8")]
+    bos_id = params.lookup["target"][params.bos.encode("utf-8")]
+    eos_id = params.lookup["target"][params.eos.encode("utf-8")]
+
+    min_val = -1e9
+    shape = features["source"].shape
+    device = features["source"].device
+    batch_size = shape[0]
+    seq_length = shape[1]
 
     # Compute initial state if necessary
     states = []
     funcs = []
 
-    for model_fn in model_fns:
-        if callable(model_fn):
-            # For non-incremental decoding
-            states.append({})
-            funcs.append(model_fn)
-        else:
-            # For incremental decoding where model_fn is a tuple:
-            # (encoding_fn, decoding_fn)
-            states.append(model_fn[0](features))
-            funcs.append(model_fn[1])
-
-    batch_size = tf.shape(features["source"])[0]
-    pad_id = params.mapping["target"][params.pad]
-    bos_id = params.mapping["target"][params.bos]
-    eos_id = params.mapping["target"][params.eos]
-
-    # Expand the inputs
-    # [batch, length] => [batch, beam_size, length]
-    features["source"] = tf.expand_dims(features["source"], 1)
-    features["source"] = tf.tile(features["source"], [1, beam_size, 1])
-    shape = tf.shape(features["source"])
-
-    # [batch, beam_size, length] => [batch * beam_size, length]
-    features["source"] = tf.reshape(features["source"],
-                                    [shape[0] * shape[1], shape[2]])
+    for model in models:
+        state = model.empty_state(batch_size, device)
+        states.append(model.encode(features, state))
+        funcs.append(model.decode)
 
     # For source sequence length
-    features["source_length"] = tf.expand_dims(features["source_length"], 1)
-    features["source_length"] = tf.tile(features["source_length"],
-                                        [1, beam_size])
-    shape = tf.shape(features["source_length"])
+    max_length = features["source_mask"].sum(1) * decode_ratio
+    max_length = max_length.long() + decode_length
+    max_step = max_length.max()
+    # [batch, beam_size]
+    max_length = torch.unsqueeze(max_length, 1).repeat([1, beam_size])
+    min_length = torch.ones_like(max_length)
 
-    max_length = features["source_length"] + decode_length
+    # Expand the inputs
+    # [batch, length] => [batch * beam_size, length]
+    features["source"] = torch.unsqueeze(features["source"], 1)
+    features["source"] = features["source"].repeat([1, beam_size, 1])
+    features["source"] = torch.reshape(features["source"],
+                                       [batch_size * beam_size, seq_length])
+    features["source_mask"] = torch.unsqueeze(features["source_mask"], 1)
+    features["source_mask"] = features["source_mask"].repeat([1, beam_size, 1])
+    features["source_mask"] = torch.reshape(features["source_mask"],
+                                       [batch_size * beam_size, seq_length])
 
-    # [batch, beam_size, length] => [batch * beam_size, length]
-    features["source_length"] = tf.reshape(features["source_length"],
-                                           [shape[0] * shape[1]])
     decoding_fn = _get_inference_fn(funcs, features)
-    states = nest.map_structure(
-        lambda x: utils.tile_to_beam_size(x, beam_size),
+
+    states = map_structure(
+        lambda x: _tile_to_beam_size(x, beam_size),
         states)
 
-    seqs, scores = beam_search(decoding_fn, states, batch_size, beam_size,
-                               max_length, alpha, pad_id, bos_id, eos_id)
+    # Initial beam search state
+    init_seqs = torch.full([batch_size, beam_size, 1], bos_id, device=device)
+    init_seqs = init_seqs.long()
+    init_log_probs = init_seqs.new_tensor(
+        [[0.] + [min_val] * (beam_size - 1)], dtype=torch.float32)
+    init_log_probs = init_log_probs.repeat([batch_size, 1])
+    init_scores = torch.zeros_like(init_log_probs)
+    fin_seqs = torch.zeros([batch_size, beam_size, 1], dtype=torch.int64,
+                           device=device)
+    fin_scores = torch.full([batch_size, beam_size], min_val,
+                            dtype=torch.float32, device=device)
+    fin_flags = torch.zeros([batch_size, beam_size], dtype=torch.bool,
+                            device=device)
 
-    return seqs[:, :top_beams, 1:], scores[:, :top_beams]
+    state = BeamSearchState(
+        inputs=(init_seqs, init_log_probs, init_scores),
+        state=states,
+        finish=(fin_flags, fin_seqs, fin_scores),
+    )
+
+    for time in range(max_step):
+        state = _beam_search_step(time, decoding_fn, state, batch_size,
+                                  beam_size, alpha, pad_id, eos_id,
+                                  min_length, max_length)
+        max_penalty = ((5.0 + max_step) / 6.0) ** alpha
+        best_alive_score = torch.max(state.inputs[1][:, 0] / max_penalty)
+        worst_finished_score = torch.min(state.finish[2])
+        cond = torch.gt(worst_finished_score, best_alive_score)
+        is_finished = bool(cond)
+
+        if is_finished:
+            break
+
+    final_state = state
+    alive_seqs = final_state.inputs[0]
+    alive_scores = final_state.inputs[2]
+    final_flags = final_state.finish[0].byte()
+    final_seqs = final_state.finish[1]
+    final_scores = final_state.finish[2]
+
+    final_seqs = torch.where(final_flags[:, :, None], final_seqs, alive_seqs)
+    final_scores = torch.where(final_flags, final_scores, alive_scores)
+
+    # Append extra <eos>
+    final_seqs = torch.nn.functional.pad(final_seqs, (0, 1, 0, 0, 0, 0),
+                                         value=eos_id)
+
+    return final_seqs[:, :top_beams, 1:], final_scores[:, :top_beams]
+
+
+def argmax_decoding(models, features, params):
+    if not isinstance(models, (list, tuple)):
+        raise ValueError("'models' must be a list or tuple")
+
+    # Compute initial state if necessary
+    log_probs = []
+    shape = features["target"].shape
+    device = features["target"].device
+    batch_size = features["target"].shape[0]
+    target_mask = features["target_mask"]
+    target_length = target_mask.sum(1).long()
+    eos_id = params.lookup["target"][params.eos.encode("utf-8")]
+
+    for model in models:
+        state = model.empty_state(batch_size, device)
+        state = model.encode(features, state)
+        logits, _ = model.decode(features, state, "eval")
+        log_probs.append(torch.nn.functional.log_softmax(logits, dim=-1))
+
+    log_prob = sum(log_probs) / len(models)
+    ret = torch.max(log_prob, -1)
+    values = torch.reshape(ret.values, shape)
+    indices = torch.reshape(ret.indices, shape)
+
+    batch_pos = torch.arange(batch_size, device=device)
+    seq_pos = target_length - 1
+    indices[batch_pos, seq_pos] = eos_id
+
+    return indices[:, None, :], torch.sum(values * target_mask, -1)[:, None]

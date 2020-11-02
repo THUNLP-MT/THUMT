@@ -1,2 +1,2 @@
-# coding=utf-8
-# Copyright 2017-2019 The THUMT Authors
+from thumt.data.dataset import get_dataset
+from thumt.data.vocab import load_vocabulary, lookup

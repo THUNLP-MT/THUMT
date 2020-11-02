@@ -1,56 +1,60 @@
-#!/usr/bin/env python
 # coding=utf-8
-# Copyright 2017-2019 The THUMT Authors
+# Copyright 2017-2020 The THUMT Authors
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 import argparse
-import itertools
+import copy
+import logging
 import os
+import re
 import six
-import sys
+import socket
+import time
+import torch
 
-import numpy as np
-import tensorflow as tf
-import thumt.data.dataset as dataset
-import thumt.data.vocab as vocabulary
+import thumt.data as data
+import torch.distributed as dist
 import thumt.models as models
-import thumt.utils.inference as inference
-import thumt.utils.parallel as parallel
-import thumt.utils.sampling as sampling
+import thumt.utils as utils
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Translate using existing NMT models",
+        description="Decode input sentences with pre-trained checkpoints.",
         usage="translator.py [<args>] [-h | --help]"
     )
 
     # input files
-    parser.add_argument("--input", type=str, required=True,
-                        help="Path of input file")
+    parser.add_argument("--input", type=str, required=True, nargs="+",
+                        help="Path to input file.")
     parser.add_argument("--output", type=str, required=True,
-                        help="Path of output file")
-    parser.add_argument("--checkpoints", type=str, nargs="+", required=True,
-                        help="Path of trained models")
+                        help="Path to output file.")
+    parser.add_argument("--checkpoints", type=str, required=True, nargs="+",
+                        help="Path to trained checkpoints.")
     parser.add_argument("--vocabulary", type=str, nargs=2, required=True,
-                        help="Path of source and target vocabulary")
+                        help="Path to source and target vocabulary.")
 
     # model and configuration
     parser.add_argument("--models", type=str, required=True, nargs="+",
-                        help="Name of the model")
-    parser.add_argument("--parameters", type=str,
-                        help="Additional hyper parameters")
-    parser.add_argument("--verbose", action="store_true",
-                        help="Enable verbose output")
+                        help="Name of the models.")
+    parser.add_argument("--parameters", type=str, default="",
+                        help="Additional hyper-parameters.")
+
+    # mutually exclusive parameters
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--half", action="store_true",
+                       help="Enable Half-precision for decoding.")
+    group.add_argument("--cpu", action="store_true",
+                       help="Enable CPU for decoding.")
 
     return parser.parse_args()
 
 
-def default_parameters():
-    params = tf.contrib.training.HParams(
+def default_params():
+    params = utils.HParams(
         input=None,
         output=None,
         vocabulary=None,
@@ -59,31 +63,21 @@ def default_parameters():
         bos="<bos>",
         eos="<eos>",
         unk="<unk>",
-        mapping=None,
-        append_eos=False,
         device_list=[0],
-        num_threads=1,
         # decoding
         top_beams=1,
         beam_size=4,
         decode_alpha=0.6,
+        decode_ratio=1.0,
         decode_length=50,
         decode_batch_size=32,
-        # sampling
-        generate_samples=False,
-        num_samples=1,
-        min_length_ratio=0.0,
-        max_length_ratio=1.5,
-        min_sample_length=0,
-        max_sample_length=0,
-        sample_batch_size=32
     )
 
     return params
 
 
-def merge_parameters(params1, params2):
-    params = tf.contrib.training.HParams()
+def merge_params(params1, params2):
+    params = utils.HParams()
 
     for (k, v) in six.iteritems(params1.values()):
         params.add_hparam(k, v)
@@ -101,277 +95,264 @@ def merge_parameters(params1, params2):
 
 
 def import_params(model_dir, model_name, params):
-    if model_name.startswith("experimental_"):
-        model_name = model_name[13:]
-
     model_dir = os.path.abspath(model_dir)
     m_name = os.path.join(model_dir, model_name + ".json")
 
-    if not tf.gfile.Exists(m_name):
+    if not os.path.exists(m_name):
         return params
 
-    with tf.gfile.Open(m_name) as fd:
-        tf.logging.info("Restoring model parameters from %s" % m_name)
+    with open(m_name) as fd:
+        logging.info("Restoring model parameters from %s" % m_name)
         json_str = fd.readline()
         params.parse_json(json_str)
 
     return params
 
 
-def override_parameters(params, args):
-    if args.parameters:
-        params.parse(args.parameters)
+def override_params(params, args):
+    params.parse(args.parameters.lower())
+
+    src_vocab, src_w2idx, src_idx2w = data.load_vocabulary(args.vocabulary[0])
+    tgt_vocab, tgt_w2idx, tgt_idx2w = data.load_vocabulary(args.vocabulary[1])
 
     params.vocabulary = {
-        "source": vocabulary.load_vocabulary(args.vocabulary[0]),
-        "target": vocabulary.load_vocabulary(args.vocabulary[1])
+        "source": src_vocab, "target": tgt_vocab
     }
-    params.vocabulary["source"] = vocabulary.process_vocabulary(
-        params.vocabulary["source"], params
-    )
-    params.vocabulary["target"] = vocabulary.process_vocabulary(
-        params.vocabulary["target"], params
-    )
-
-    control_symbols = [params.pad, params.bos, params.eos, params.unk]
-
+    params.lookup = {
+        "source": src_w2idx, "target": tgt_w2idx
+    }
     params.mapping = {
-        "source": vocabulary.get_control_mapping(
-            params.vocabulary["source"],
-            control_symbols
-        ),
-        "target": vocabulary.get_control_mapping(
-            params.vocabulary["target"],
-            control_symbols
-        )
+        "source": src_idx2w, "target": tgt_idx2w
     }
 
     return params
 
 
-def session_config(params):
-    optimizer_options = tf.OptimizerOptions(opt_level=tf.OptimizerOptions.L1,
-                                            do_function_inlining=False)
-    graph_options = tf.GraphOptions(optimizer_options=optimizer_options)
-    config = tf.ConfigProto(allow_soft_placement=True,
-                            graph_options=graph_options)
-    if params.device_list:
-        device_str = ",".join([str(i) for i in params.device_list])
-        config.gpu_options.visible_device_list = device_str
+def convert_to_string(tensor, params):
+    ids = tensor.tolist()
 
-    return config
+    output = []
 
+    eos_id = params.lookup["target"][params.eos.encode("utf-8")]
 
-def set_variables(var_list, value_dict, prefix, feed_dict):
-    ops = []
-    for var in var_list:
-        for name in value_dict:
-            var_name = "/".join([prefix] + list(name.split("/")[1:]))
+    for wid in ids:
+        if wid == eos_id:
+            break
+        output.append(params.mapping["target"][wid])
 
-            if var.name[:-2] == var_name:
-                tf.logging.debug("restoring %s -> %s" % (name, var.name))
-                placeholder = tf.placeholder(tf.float32,
-                                             name="placeholder/" + var_name)
-                with tf.device("/cpu:0"):
-                    op = tf.assign(var, placeholder)
-                    ops.append(op)
-                feed_dict[placeholder] = value_dict[name]
-                break
+    output = b" ".join(output)
 
-    return ops
+    return output
 
 
-def shard_features(features, placeholders, predictions):
-    num_shards = len(placeholders)
-    feed_dict = {}
-    n = 0
+def infer_gpu_num(param_str):
+    result = re.match(r".*device_list=\[(.*?)\].*", param_str)
 
-    for name in features:
-        feat = features[name]
-        batch = feat.shape[0]
-        shard_size = (batch + num_shards - 1) // num_shards
-
-        for i in range(num_shards):
-            shard_feat = feat[i * shard_size:(i + 1) * shard_size]
-
-            if shard_feat.shape[0] != 0:
-                feed_dict[placeholders[i][name]] = shard_feat
-                n = i + 1
-            else:
-                break
-
-    if isinstance(predictions, (list, tuple)):
-        predictions = predictions[:n]
-
-    return predictions, feed_dict
+    if not result:
+        return 1
+    else:
+        dev_str = result.groups()[-1]
+        return len(dev_str.split(","))
 
 
 def main(args):
-    tf.logging.set_verbosity(tf.logging.INFO)
     # Load configs
     model_cls_list = [models.get_model(model) for model in args.models]
-    params_list = [default_parameters() for _ in range(len(model_cls_list))]
+    params_list = [default_params() for _ in range(len(model_cls_list))]
     params_list = [
-        merge_parameters(params, model_cls.get_parameters())
-        for params, model_cls in zip(params_list, model_cls_list)
-    ]
+        merge_params(params, model_cls.default_params())
+        for params, model_cls in zip(params_list, model_cls_list)]
     params_list = [
         import_params(args.checkpoints[i], args.models[i], params_list[i])
-        for i in range(len(args.checkpoints))
-    ]
+        for i in range(len(args.checkpoints))]
     params_list = [
-        override_parameters(params_list[i], args)
-        for i in range(len(model_cls_list))
-    ]
+        override_params(params_list[i], args)
+        for i in range(len(model_cls_list))]
 
-    # Build Graph
-    with tf.Graph().as_default():
-        model_var_lists = []
+    params = params_list[0]
 
-        # Load checkpoints
-        for i, checkpoint in enumerate(args.checkpoints):
-            tf.logging.info("Loading %s" % checkpoint)
-            var_list = tf.train.list_variables(checkpoint)
-            values = {}
-            reader = tf.train.load_checkpoint(checkpoint)
+    if args.cpu:
+        dist.init_process_group("gloo",
+                                init_method=args.url,
+                                rank=args.local_rank,
+                                world_size=1)
+        torch.set_default_tensor_type(torch.FloatTensor)
+    else:
+        dist.init_process_group("nccl",
+                                init_method=args.url,
+                                rank=args.local_rank,
+                                world_size=len(params.device_list))
+        torch.cuda.set_device(params.device_list[args.local_rank])
+        torch.set_default_tensor_type(torch.cuda.FloatTensor)
 
-            for (name, shape) in var_list:
-                if not name.startswith(model_cls_list[i].get_name()):
-                    continue
+    if args.half:
+        torch.set_default_dtype(torch.half)
+        torch.set_default_tensor_type(torch.cuda.HalfTensor)
 
-                if name.find("losses_avg") >= 0:
-                    continue
-
-                tensor = reader.get_tensor(name)
-                values[name] = tensor
-
-            model_var_lists.append(values)
-
-        # Build models
+    # Create model
+    with torch.no_grad():
         model_list = []
 
-        for i in range(len(args.checkpoints)):
-            name = model_cls_list[i].get_name()
-            model = model_cls_list[i](params_list[i], name + "_%d" % i)
+        for i in range(len(args.models)):
+            if args.cpu:
+                model = model_cls_list[i](params_list[i])
+            else:
+                model = model_cls_list[i](params_list[i]).cuda()
+
+            if args.half:
+                model = model.half()
+
+            model.eval()
+            model.load_state_dict(
+                torch.load(utils.latest_checkpoint(args.checkpoints[i]),
+                           map_location="cpu")["model"])
+
             model_list.append(model)
 
-        params = params_list[0]
-        # Read input file
-        sorted_keys, sorted_inputs = dataset.sort_input_file(args.input)
-        # Build input queue
-        features = dataset.get_inference_input(sorted_inputs, params)
-        # Create placeholders
-        placeholders = []
-
-        for i in range(len(params.device_list)):
-            placeholders.append({
-                "source": tf.placeholder(tf.int32, [None, None],
-                                         "source_%d" % i),
-                "source_length": tf.placeholder(tf.int32, [None],
-                                                "source_length_%d" % i)
-            })
-
-        # A list of outputs
-        if params.generate_samples:
-            inference_fn = sampling.create_sampling_graph
+        if len(args.input) == 1:
+            mode = "infer"
+            sorted_key, dataset = data.get_dataset(
+                args.input[0], mode, params)
         else:
-            inference_fn = inference.create_inference_graph
+            # Teacher-forcing
+            mode = "eval"
+            dataset = data.get_dataset(args.input, mode, params)
+            sorted_key = None
 
-        predictions = parallel.data_parallelism(
-            params.device_list, lambda f: inference_fn(model_list, f, params),
-            placeholders)
+        iterator = iter(dataset)
+        counter = 0
+        pad_max = 1024
+        top_beams = params.top_beams
+        decode_batch_size = params.decode_batch_size
 
-        # Create assign ops
-        assign_ops = []
-        feed_dict = {}
+        # Buffers for synchronization
+        size = torch.zeros([dist.get_world_size()]).long()
+        t_list = [torch.empty([decode_batch_size, top_beams, pad_max]).long()
+                  for _ in range(dist.get_world_size())]
 
-        all_var_list = tf.trainable_variables()
+        all_outputs = []
 
-        for i in range(len(args.checkpoints)):
-            un_init_var_list = []
-            name = model_cls_list[i].get_name()
+        while True:
+            try:
+                features = next(iterator)
+                features = data.lookup(features, mode, params,
+                                       to_cpu=args.cpu)
 
-            for v in all_var_list:
-                if v.name.startswith(name + "_%d" % i):
-                    un_init_var_list.append(v)
+                if mode == "eval":
+                    features = features[0]
 
-            ops = set_variables(un_init_var_list, model_var_lists[i],
-                                name + "_%d" % i, feed_dict)
-            assign_ops.extend(ops)
+                batch_size = features["source"].shape[0]
+            except:
+                features = {
+                    "source": torch.ones([1, 1]).long(),
+                    "source_mask": torch.ones([1, 1]).float()
+                }
 
-        assign_op = tf.group(*assign_ops)
-        init_op = tf.tables_initializer()
-        results = []
+                if mode == "eval":
+                    features["target"] = torch.ones([1, 1]).long()
+                    features["target_mask"] = torch.ones([1, 1]).float()
 
-        tf.get_default_graph().finalize()
+                batch_size = 0
 
-        # Create session
-        with tf.Session(config=session_config(params)) as sess:
-            # Restore variables
-            sess.run(assign_op, feed_dict=feed_dict)
-            sess.run(init_op)
+            t = time.time()
+            counter += 1
 
-            while True:
-                try:
-                    feats = sess.run(features)
-                    op, feed_dict = shard_features(feats, placeholders,
-                                                   predictions)
-                    results.append(sess.run(op, feed_dict=feed_dict))
-                    message = "Finished batch %d" % len(results)
-                    tf.logging.log(tf.logging.INFO, message)
-                except tf.errors.OutOfRangeError:
-                    break
+            # Decode
+            if mode != "eval":
+                seqs, _ = utils.beam_search(model_list, features, params)
+            else:
+                seqs, _ = utils.argmax_decoding(model_list, features, params)
 
-        # Convert to plain text
-        vocab = params.vocabulary["target"]
-        outputs = []
-        scores = []
+            # Padding
+            pad_batch = decode_batch_size - seqs.shape[0]
+            pad_beams = top_beams - seqs.shape[1]
+            pad_length = pad_max - seqs.shape[2]
+            seqs = torch.nn.functional.pad(
+                seqs, (0, pad_length, 0, pad_beams, 0, pad_batch))
 
-        for result in results:
-            for shard in result:
-                for item in shard[0]:
-                    outputs.append(item.tolist())
-                for item in shard[1]:
-                    scores.append(item.tolist())
+            # Synchronization
+            size.zero_()
+            size[dist.get_rank()].copy_(torch.tensor(batch_size))
 
-        restored_inputs = []
-        restored_outputs = []
-        restored_scores = []
+            if args.cpu:
+                t_list[dist.get_rank()].copy_(seqs)
+            else:
+                dist.all_reduce(size)
+                dist.all_gather(t_list, seqs)
 
-        for index in range(len(sorted_inputs)):
-            restored_inputs.append(sorted_inputs[sorted_keys[index]])
-            restored_outputs.append(outputs[sorted_keys[index]])
-            restored_scores.append(scores[sorted_keys[index]])
+            if size.sum() == 0:
+                break
 
-        # Write to file
-        if sys.version_info.major == 2:
-            outfile = open(args.output, "w")
-        elif sys.version_info.major == 3:
-            outfile = open(args.output, "w", encoding="utf-8")
-        else:
-            raise ValueError("Unkown python running environment!")
+            if dist.get_rank() != 0:
+                continue
 
-        count = 0
-        for outputs, scores in zip(restored_outputs, restored_scores):
-            for output, score in zip(outputs, scores):
-                decoded = []
-                for idx in output:
-                    if idx == params.mapping["target"][params.eos]:
-                        break
-                    decoded.append(vocab[idx])
+            for i in range(decode_batch_size):
+                for j in range(dist.get_world_size()):
+                    beam_seqs = []
+                    pad_flag = i >= size[j]
+                    for k in range(top_beams):
+                        seq = convert_to_string(t_list[j][i][k], params)
 
-                decoded = " ".join(decoded)
+                        if pad_flag:
+                            continue
 
-                if not args.verbose:
-                    outfile.write("%s\n" % decoded)
+                        beam_seqs.append(seq)
+
+                    if pad_flag:
+                        continue
+
+                    all_outputs.append(beam_seqs)
+
+            t = time.time() - t
+            print("Finished batch: %d (%.3f sec)" % (counter, t))
+
+        if dist.get_rank() == 0:
+            restored_outputs = []
+            if sorted_key is not None:
+                for idx in range(len(all_outputs)):
+                    restored_outputs.append(all_outputs[sorted_key[idx]])
+            else:
+                restored_outputs = all_outputs
+
+            with open(args.output, "wb") as fd:
+                if top_beams == 1:
+                    for seqs in restored_outputs:
+                        fd.write(seqs[0] + b"\n")
                 else:
-                    pattern = "%d ||| %s ||| %s ||| %f\n"
-                    source = restored_inputs[count]
-                    values = (count, source, decoded, score)
-                    outfile.write(pattern % values)
+                    for idx, seqs in enumerate(restored_outputs):
+                        for k, seq in enumerate(seqs):
+                            fd.write(b"%d\t%d\t" % (idx, k))
+                            fd.write(seq + b"\n")
 
-            count += 1
-        outfile.close()
+
+# Wrap main function
+def process_fn(rank, args):
+    local_args = copy.copy(args)
+    local_args.local_rank = rank
+    main(local_args)
+
+
+def cli_main():
+    parsed_args = parse_args()
+
+    # Pick a free port
+    with socket.socket() as s:
+        s.bind(("localhost", 0))
+        port = s.getsockname()[1]
+        url = "tcp://localhost:" + str(port)
+        parsed_args.url = url
+
+    if parsed_args.cpu:
+        world_size = 1
+    else:
+        world_size = infer_gpu_num(parsed_args.parameters)
+
+    if world_size > 1:
+        torch.multiprocessing.spawn(process_fn, args=(parsed_args,),
+                                    nprocs=world_size)
+    else:
+        process_fn(0, parsed_args)
+
 
 if __name__ == "__main__":
-    main(parse_args())
+    cli_main()

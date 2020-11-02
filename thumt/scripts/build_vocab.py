@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # coding=utf-8
-# Copyright 2017-2019 The THUMT Authors
+# Copyright 2017-2020 The THUMT Authors
 
 from __future__ import absolute_import
 from __future__ import division
@@ -8,49 +8,6 @@ from __future__ import print_function
 
 import argparse
 import collections
-import sys
-
-
-def _open(filename, mode="r", encoding="utf-8"):
-    if sys.version_info.major == 2:
-        return open(filename, mode=mode)
-    elif sys.version_info.major == 3:
-        return open(filename, mode=mode, encoding=encoding)
-    else:
-        raise RuntimeError("Unknown Python version for running!")
-
-
-def count_words(filename):
-    counter = collections.Counter()
-
-    with _open(filename, "r") as fd:
-        for line in fd:
-            words = line.strip().split()
-            counter.update(words)
-
-    count_pairs = sorted(counter.items(), key=lambda x: (-x[1], x[0]))
-    words, counts = list(zip(*count_pairs))
-
-    return words, counts
-
-
-def control_symbols(string):
-    if not string:
-        return []
-    else:
-        return string.strip().split(",")
-
-
-def save_vocab(name, vocab):
-    if name.split(".")[-1] != "txt":
-        name = name + ".txt"
-
-    pairs = sorted(vocab.items(), key=lambda x: (x[1], x[0]))
-    words, ids = list(zip(*pairs))
-
-    with _open(name, "w") as f:
-        for word in words:
-            f.write(word + "\n")
 
 
 def parse_args():
@@ -67,15 +24,50 @@ def parse_args():
     return parser.parse_args()
 
 
+def count_words(filename):
+    counter = collections.Counter()
+
+    with open(filename, "rb") as fd:
+        for line in fd:
+            words = line.strip().split()
+            counter.update(words)
+
+    count_pairs = sorted(counter.items(), key=lambda x: (-x[1], x[0]))
+    words, counts = list(zip(*count_pairs))
+
+    return words, counts
+
+
+def control_symbols(string):
+    if not string:
+        return []
+    else:
+        symbs = string.strip().split(",")
+        return [sym.encode("ascii") for sym in symbs]
+
+
+def save_vocab(name, vocab):
+    if name.split(".")[-1] != "txt":
+        name = name + ".txt"
+
+    pairs = sorted(vocab.items(), key=lambda x: (x[1], x[0]))
+    words, _ = list(zip(*pairs))
+
+    with open(name, "wb") as f:
+        for word in words:
+            f.write(word)
+            f.write("\n".encode("ascii"))
+
+
 def main(args):
     vocab = {}
     limit = args.limit
     count = 0
 
     words, counts = count_words(args.corpus)
-    ctrl_symbols = control_symbols(args.control)
+    ctl_symbols = control_symbols(args.control)
 
-    for sym in ctrl_symbols:
+    for sym in ctl_symbols:
         vocab[sym] = len(vocab)
 
     for word, freq in zip(words, counts):
