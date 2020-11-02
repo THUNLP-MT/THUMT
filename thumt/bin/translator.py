@@ -23,32 +23,32 @@ import thumt.utils as utils
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Translate using existing NMT models",
+        description="Decode input sentences with pre-trained checkpoints.",
         usage="translator.py [<args>] [-h | --help]"
     )
 
     # input files
     parser.add_argument("--input", type=str, required=True, nargs="+",
-                        help="Path of input file")
+                        help="Path to input file.")
     parser.add_argument("--output", type=str, required=True,
-                        help="Path of output file")
+                        help="Path to output file.")
     parser.add_argument("--checkpoints", type=str, required=True, nargs="+",
-                        help="Path of trained models")
+                        help="Path to trained checkpoints.")
     parser.add_argument("--vocabulary", type=str, nargs=2, required=True,
-                        help="Path of source and target vocabulary")
+                        help="Path to source and target vocabulary.")
 
     # model and configuration
     parser.add_argument("--models", type=str, required=True, nargs="+",
-                        help="Name of the model")
+                        help="Name of the models.")
     parser.add_argument("--parameters", type=str, default="",
-                        help="Additional hyper parameters")
+                        help="Additional hyper-parameters.")
 
     # mutually exclusive parameters
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--half", action="store_true",
-                       help="Use half precision for decoding")
+                       help="Enable Half-precision for decoding.")
     group.add_argument("--cpu", action="store_true",
-                       help="Use CPU for decoding")
+                       help="Enable CPU for decoding.")
 
     return parser.parse_args()
 
@@ -132,7 +132,7 @@ def convert_to_string(tensor, params):
     ids = tensor.tolist()
 
     output = []
-    
+
     eos_id = params.lookup["target"][params.eos.encode("utf-8")]
 
     for wid in ids:
@@ -172,7 +172,7 @@ def main(args):
     params = params_list[0]
 
     if args.cpu:
-        dist.init_process_group("gloo", 
+        dist.init_process_group("gloo",
                                 init_method=args.url,
                                 rank=args.local_rank,
                                 world_size=1)
@@ -229,7 +229,7 @@ def main(args):
         size = torch.zeros([dist.get_world_size()]).long()
         t_list = [torch.empty([decode_batch_size, top_beams, pad_max]).long()
                   for _ in range(dist.get_world_size())]
-        
+
         all_outputs = []
 
         while True:
@@ -295,12 +295,12 @@ def main(args):
 
                         if pad_flag:
                             continue
-                        
+
                         beam_seqs.append(seq)
-                    
+
                     if pad_flag:
                         continue
-                    
+
                     all_outputs.append(beam_seqs)
 
             t = time.time() - t
@@ -313,7 +313,7 @@ def main(args):
                     restored_outputs.append(all_outputs[sorted_key[idx]])
             else:
                 restored_outputs = all_outputs
-            
+
             with open(args.output, "wb") as fd:
                 if top_beams == 1:
                     for seqs in restored_outputs:

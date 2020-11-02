@@ -30,27 +30,27 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Translate using existing NMT models",
+        description="Score input sentences with pre-trained checkpoints.",
         usage="scorer.py [<args>] [-h | --help]"
     )
 
     # input files
     parser.add_argument("--input", type=str, required=True, nargs=2,
-                        help="Path of input file")
+                        help="Path to input file.")
     parser.add_argument("--output", type=str, required=True,
-                        help="Path of output file")
+                        help="Path to output file.")
     parser.add_argument("--checkpoint", type=str, required=True,
-                        help="Path of trained models")
+                        help="Path to trained checkpoint.")
     parser.add_argument("--vocabulary", type=str, nargs=2, required=True,
-                        help="Path of source and target vocabulary")
+                        help="Path to source and target vocabulary.")
 
     # model and configuration
     parser.add_argument("--model", type=str, required=True,
-                        help="Name of the model")
+                        help="Name of the model.")
     parser.add_argument("--parameters", type=str, default="",
-                        help="Additional hyper parameters")
+                        help="Additional hyper-parameters.")
     parser.add_argument("--half", action="store_true",
-                        help="Use half precision for decoding")
+                        help="Enable Half-precision for decoding.")
 
     return parser.parse_args()
 

@@ -65,6 +65,8 @@ The source code is dual licensed. Open source licensing is under the [BSD-3-Clau
 
 Please cite the following paper:
 
+> Zhixing Tan, Jiacheng Zhang, Xuancheng Huang, Gang Chen, Shuo Wang, Maosong Sun, Huanbo Luan, Yang Liu. [THUMT: An Open Source Toolkit for Neural Machine Translation](https://www.aclweb.org/anthology/2020.amta-research.11/). AMTA 2020.
+
 > Jiacheng Zhang, Yanzhuo Ding, Shiqi Shen, Yong Cheng, Maosong Sun, Huanbo Luan, Yang Liu. 2017. [THUMT: An Open Source Toolkit for Neural Machine Translation](https://arxiv.org/abs/1706.06415). arXiv:1706.06415.
 
 ## Development Team
@@ -77,7 +79,7 @@ Theano: Jiacheng Zhang, Yanzhuo Ding, Shiqi Shen, Yong Cheng
 
 TensorFlow: Zhixing Tan, Jiacheng Zhang, Xuancheng Huang, Gang Chen, Shuo Wang, Zonghan Yang
 
-PyTorch: Zhixing Tan
+PyTorch: Zhixing Tan, Gang Chen
 
 ## Contact
 

@@ -26,37 +26,37 @@ import thumt.utils.summary as summary
 
 def parse_args(args=None):
     parser = argparse.ArgumentParser(
-        description="Training neural machine translation models",
+        description="Train a neural machine translation model.",
         usage="trainer.py [<args>] [-h | --help]"
     )
 
     # input files
     parser.add_argument("--input", type=str, nargs=2,
-                        help="Path of source and target corpus")
+                        help="Path to source and target corpus.")
     parser.add_argument("--output", type=str, default="train",
-                        help="Path to saved models")
+                        help="Path to load/store checkpoints.")
     parser.add_argument("--vocabulary", type=str, nargs=2,
-                        help="Path of source and target vocabulary")
+                        help="Path to source and target vocabulary.")
     parser.add_argument("--validation", type=str,
-                        help="Path of validation file")
+                        help="Path to validation file.")
     parser.add_argument("--references", type=str,
-                        help="Pattern of reference files")
+                        help="Pattern to reference files.")
     parser.add_argument("--checkpoint", type=str,
-                        help="Path to pre-trained checkpoint")
+                        help="Path to pre-trained checkpoint.")
     parser.add_argument("--distributed", action="store_true",
-                        help="Enable distributed training mode")
+                        help="Enable distributed training.")
     parser.add_argument("--local_rank", type=int,
-                        help="Local rank of this process")
+                        help="Local rank of this process.")
     parser.add_argument("--half", action="store_true",
-                        help="Enable mixed precision training")
+                        help="Enable mixed-precision training.")
     parser.add_argument("--hparam_set", type=str,
-                        help="Name of pre-defined hyper parameter set")
+                        help="Name of pre-defined hyper-parameter set.")
 
     # model and configuration
     parser.add_argument("--model", type=str, required=True,
-                        help="Name of the model")
+                        help="Name of the model.")
     parser.add_argument("--parameters", type=str, default="",
-                        help="Additional hyper parameters")
+                        help="Additional hyper-parameters.")
 
     return parser.parse_args(args)
 
