@@ -108,7 +108,7 @@ thumt-trainer \
   --input corpus.tc.32k.zh.shuf corpus.tc.32k.en.shuf \
   --vocabulary vocab.32k.zh.txt vocab.32k.en.txt \
   --model transformer \
-  --validation newsdev2017.zh.32k.zh \
+  --validation newsdev2017.tc.32k.zh \
   --references newsdev2017.tc.en \
   --parameters=batch_size=4096,device_list=[0,1,2,3],update_cycle=2 \
   --hparam_set base
