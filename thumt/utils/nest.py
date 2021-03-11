@@ -88,8 +88,8 @@ def _recursive_assert_same_structure(nest1, nest2, check_types):
                 % (type_nest1, type_nest2))
 
         if isinstance(nest1, dict):
-            keys1 = set(_six.iterkeys(nest1))
-            keys2 = set(_six.iterkeys(nest2))
+            keys1 = set(six.iterkeys(nest1))
+            keys2 = set(six.iterkeys(nest2))
             if keys1 != keys2:
                 raise ValueError(
                     "The two dictionaries don't have the same set of keys. "
