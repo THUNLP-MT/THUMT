@@ -112,33 +112,25 @@ def import_params(model_dir, model_name, params):
 def override_params(params, args):
     params.parse(args.parameters.lower())
 
-    src_vocab, src_w2idx, src_idx2w = data.load_vocabulary(args.vocabulary[0])
-    tgt_vocab, tgt_w2idx, tgt_idx2w = data.load_vocabulary(args.vocabulary[1])
-
     params.vocabulary = {
-        "source": src_vocab, "target": tgt_vocab
-    }
-    params.lookup = {
-        "source": src_w2idx, "target": tgt_w2idx
-    }
-    params.mapping = {
-        "source": src_idx2w, "target": tgt_idx2w
+        "source": data.Vocabulary(args.vocabulary[0]),
+        "target": data.Vocabulary(args.vocabulary[1])
     }
 
     return params
 
 
-def convert_to_string(tensor, params):
+def convert_to_string(tensor, params, direction="target"):
     ids = tensor.tolist()
 
     output = []
 
-    eos_id = params.lookup["target"][params.eos.encode("utf-8")]
+    eos_id = params.vocabulary[direction][params.eos]
 
     for wid in ids:
         if wid == eos_id:
             break
-        output.append(params.mapping["target"][wid])
+        output.append(params.vocabulary[direction][wid])
 
     output = b" ".join(output)
 
@@ -178,6 +170,7 @@ def main(args):
                                 world_size=1)
         torch.set_default_tensor_type(torch.FloatTensor)
     else:
+        params.device = params.device_list[args.local_rank]
         dist.init_process_group("nccl",
                                 init_method=args.url,
                                 rank=args.local_rank,
@@ -211,12 +204,12 @@ def main(args):
 
         if len(args.input) == 1:
             mode = "infer"
-            sorted_key, dataset = data.get_dataset(
-                args.input[0], mode, params)
+            sorted_key, dataset = data.MTPipeline.get_infer_dataset(
+                args.input[0], params)
         else:
             # Teacher-forcing
             mode = "eval"
-            dataset = data.get_dataset(args.input, mode, params)
+            dataset = data.MTPipeline.get_eval_dataset(args.input, params)
             sorted_key = None
 
         iterator = iter(dataset)
@@ -235,8 +228,6 @@ def main(args):
         while True:
             try:
                 features = next(iterator)
-                features = data.lookup(features, mode, params,
-                                       to_cpu=args.cpu)
 
                 if mode == "eval":
                     features = features[0]

@@ -183,17 +183,9 @@ def override_params(params, args):
     params.references = args.references or params.references
     params.parse(args.parameters.lower())
 
-    src_vocab, src_w2idx, src_idx2w = data.load_vocabulary(params.vocab[0])
-    tgt_vocab, tgt_w2idx, tgt_idx2w = data.load_vocabulary(params.vocab[1])
-
     params.vocabulary = {
-        "source": src_vocab, "target": tgt_vocab
-    }
-    params.lookup = {
-        "source": src_w2idx, "target": tgt_w2idx
-    }
-    params.mapping = {
-        "source": src_idx2w, "target": tgt_idx2w
+        "source": data.Vocabulary(params.vocab[0]),
+        "target": data.Vocabulary(params.vocab[1])
     }
 
     return params
@@ -365,10 +357,12 @@ def main(args):
 
     # Initialize distributed utility
     if args.distributed:
+        params.device = args.local_rank
         dist.init_process_group("nccl")
         torch.cuda.set_device(args.local_rank)
         torch.set_default_tensor_type(torch.cuda.FloatTensor)
     else:
+        params.device = params.device_list[args.local_rank]
         dist.init_process_group("nccl", init_method=args.url,
                                 rank=args.local_rank,
                                 world_size=len(params.device_list))
@@ -405,11 +399,11 @@ def main(args):
     trainable_flags = print_variables(model, params.pattern,
                                       dist.get_rank() == 0)
 
-    dataset = data.get_dataset(params.input, "train", params)
+    dataset = data.MTPipeline.get_train_dataset(params.input, params)
 
     if params.validation:
-        sorted_key, eval_dataset = data.get_dataset(
-            params.validation, "infer", params)
+        sorted_key, eval_dataset = data.MTPipeline.get_infer_dataset(
+            params.validation, params)
         references = load_references(params.references)
     else:
         sorted_key = None
@@ -454,7 +448,6 @@ def main(args):
 
             counter += 1
             t = time.time()
-            features = data.lookup(features, "train", params)
             loss = train_fn(features)
             gradients = optimizer.compute_gradients(loss,
                                                     list(model.parameters()))

@@ -1,83 +1,45 @@
 # coding=utf-8
-# Copyright 2017-2020 The THUMT Authors
+# Copyright 2017-Present The THUMT Authors
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-import torch
 import numpy as np
+import six
+import torch
+
+from typing import Union
 
 
-def _lookup(x, vocab, to_cpu=False):
-    x = x.tolist()
-    y = []
+class Vocabulary(object):
 
-    for _, batch in enumerate(x):
-        ids = []
-        for _, v in enumerate(batch):
-            ids.append(vocab[v] if v in vocab else 2)
-        y.append(ids)
+    def __init__(self, filename):
+        self._idx2word = {}
+        self._word2idx = {}
+        cnt = 0
 
-    if to_cpu:
-        return torch.LongTensor(np.array(y, dtype="int32"))
+        with open(filename, "rb") as fd:
+            for line in fd:
+                self._word2idx[line.strip()] = cnt
+                self._idx2word[cnt] = line.strip()
+                cnt = cnt + 1
 
-    return torch.LongTensor(np.array(y, dtype="int32")).cuda()
+    def __getitem__(self, key: Union[bytes, int]):
+        if isinstance(key, int):
+            return self._idx2word[key]
+        elif isinstance(key, bytes):
+            return self._word2idx[key]
+        elif isinstance(key, str):
+            key = key.encode("utf-8")
+            return self._word2idx[key]
+        else:
+            raise LookupError("Cannot lookup key %s." % key)
 
+    def __contains__(self, key):
+        if isinstance(key, str):
+            key = key.encode("utf-8")
 
-def load_vocabulary(filename):
-    vocab = []
-    with open(filename, "rb") as fd:
-        for line in fd:
-            vocab.append(line.strip())
+        return key in self._word2idx
 
-    word2idx = {}
-    idx2word = {}
+    def __iter__(self):
+        return six.iterkeys(self._word2idx)
 
-    for idx, word in enumerate(vocab):
-        word2idx[word] = idx
-        idx2word[idx] = word
-
-    return vocab, word2idx, idx2word
-
-
-def lookup(inputs, mode, params, to_cpu=False):
-    if mode != "infer":
-        features, labels = inputs
-        source, target = features["source"], features["target"]
-        source = source.numpy()
-        target = target.numpy()
-        labels = labels.numpy()
-        src_mask = torch.FloatTensor(features["source_mask"].numpy())
-        tgt_mask = torch.FloatTensor(features["target_mask"].numpy())
-
-        if not to_cpu:
-            src_mask = src_mask.cuda()
-            tgt_mask = tgt_mask.cuda()
-
-        source = _lookup(source, params.lookup["source"], to_cpu=to_cpu)
-        target = _lookup(target, params.lookup["target"], to_cpu=to_cpu)
-        labels = _lookup(labels, params.lookup["target"], to_cpu=to_cpu)
-
-        features = {
-            "source": source,
-            "source_mask": src_mask,
-            "target": target,
-            "target_mask": tgt_mask
-        }
-
-        return features, labels
-
-    source = inputs["source"].numpy()
-    source = _lookup(source, params.lookup["source"], to_cpu=to_cpu)
-    src_mask = torch.FloatTensor(inputs["source_mask"].numpy())
-
-    if not to_cpu:
-        src_mask = src_mask.cuda()
-
-    features = {
-        "source": source,
-        "source_mask": src_mask
-    }
-
-    return features
+    def __len__(self):
+        return len(self._idx2word)

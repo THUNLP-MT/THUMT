@@ -28,7 +28,7 @@ setup(
         "future",
         "pillow",
         "torch>=1.1.0",
-        "tensorflow-cpu>=2.0.0"],
+        "regex"],
     classifiers=[
         "Programming Language :: Python :: 3",
         "Topic :: Scientific/Engineering :: Artificial Intelligence"])

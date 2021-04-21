@@ -15,7 +15,6 @@ import torch
 
 import torch.distributed as dist
 
-from thumt.data.vocab import lookup
 from thumt.utils.checkpoint import save, latest_checkpoint
 from thumt.utils.inference import beam_search
 from thumt.utils.bleu import bleu
@@ -97,17 +96,17 @@ def _add_to_record(records, record, max_to_keep):
     return added, removed, records
 
 
-def _convert_to_string(tensor, params):
+def _convert_to_string(tensor, params, direction="target"):
     ids = tensor.tolist()
 
     output = []
-    
-    eos_id = params.lookup["target"][params.eos.encode("utf-8")]
+
+    eos_id = params.vocabulary[direction][params.eos]
 
     for wid in ids:
         if wid == eos_id:
             break
-        output.append(params.mapping["target"][wid])
+        output.append(params.vocabulary[direction][wid])
 
     output = b" ".join(output)
 
@@ -132,7 +131,6 @@ def _evaluate_model(model, sorted_key, dataset, references, params):
         while True:
             try:
                 features = next(iterator)
-                features = lookup(features, "infer", params)
                 batch_size = features["source"].shape[0]
             except:
                 features = {
@@ -190,7 +188,7 @@ def _evaluate_model(model, sorted_key, dataset, references, params):
             restored_results.append(results[sorted_key[idx]])
 
         return bleu(restored_results, references)
-    
+
     return 0.0
 
 

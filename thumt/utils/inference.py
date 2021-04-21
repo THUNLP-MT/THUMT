@@ -7,7 +7,6 @@ from __future__ import print_function
 
 import math
 import torch
-import tensorflow as tf
 
 from collections import namedtuple
 from thumt.utils.nest import map_structure
@@ -171,9 +170,9 @@ def beam_search(models, features, params):
     decode_ratio = params.decode_ratio
     decode_length = params.decode_length
 
-    pad_id = params.lookup["target"][params.pad.encode("utf-8")]
-    bos_id = params.lookup["target"][params.bos.encode("utf-8")]
-    eos_id = params.lookup["target"][params.eos.encode("utf-8")]
+    pad_id = params.vocabulary["target"][params.pad]
+    bos_id = params.vocabulary["target"][params.bos]
+    eos_id = params.vocabulary["target"][params.eos]
 
     min_val = -1e9
     shape = features["source"].shape
@@ -276,7 +275,7 @@ def argmax_decoding(models, features, params):
     batch_size = features["target"].shape[0]
     target_mask = features["target_mask"]
     target_length = target_mask.sum(1).long()
-    eos_id = params.lookup["target"][params.eos.encode("utf-8")]
+    eos_id = params.vocabulary["target"][params.eos]
 
     for model in models:
         state = model.empty_state(batch_size, device)

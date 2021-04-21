@@ -1,2 +1,6 @@
-from thumt.data.dataset import get_dataset
-from thumt.data.vocab import load_vocabulary, lookup
+# coding=utf-8
+# Copyright 2017-Present The THUMT Authors
+
+from thumt.data.dataset import Dataset, ElementSpec, MapFunc, TextLineDataset
+from thumt.data.pipeline import MTPipeline
+from thumt.data.vocab import Vocabulary

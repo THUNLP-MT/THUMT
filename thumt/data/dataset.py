@@ -1,247 +1,667 @@
 # coding=utf-8
-# Copyright 2017-2020 The THUMT Authors
+# Copyright 2017-Present The THUMT Authors
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
+import abc
 import torch
-import tensorflow as tf
-import operator
+
+from collections.abc import Sequence
+from torch.utils.data import IterableDataset
+from thumt.data.iterator import Iterator
+from thumt.data.vocab import Vocabulary
+from thumt.tokenizers import Tokenizer
+from typing import Any, Dict, NoReturn, List, Tuple, Union, Callable
 
 
-def sort_input_file(filename, reverse=True):
-    with open(filename, "rb") as fd:
-        inputs = [line.strip() for line in fd]
-    
-    input_lens = [
-        (i, len(line.split())) for i, line in enumerate(inputs)]
-    
-    sorted_input_lens = sorted(input_lens, key=lambda x: x[1],
-                               reverse=reverse)
-    sorted_keys = {}
-    sorted_inputs = []
-    
-    for i, (idx, _) in enumerate(sorted_input_lens):
-        sorted_inputs.append(inputs[idx])
-        sorted_keys[idx] = i
-    
-    return sorted_keys, sorted_inputs
+class ElementSpec(object):
+
+    def __init__(self, elem_type, shape):
+        self._type = elem_type
+        self._shape = shape
+
+    def __repr__(self) -> str:
+        return "%s, %s" % (self._type, self._shape)
+
+    @property
+    def elem_type(self) -> Any:
+        return self._type
+
+    @property
+    def shape(self) -> str:
+        return self._shape
 
 
-def build_input_fn(filenames, mode, params):
-    def train_input_fn():
-        src_dataset = tf.data.TextLineDataset(filenames[0])
-        tgt_dataset = tf.data.TextLineDataset(filenames[1])
+class MapFunc(object):
 
-        dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
-        dataset = dataset.shard(torch.distributed.get_world_size(),
-                                torch.distributed.get_rank())
-        dataset = dataset.prefetch(params.buffer_size)
-        dataset = dataset.shuffle(params.buffer_size)
+    def __init__(self, fn: Callable, spec: ElementSpec):
+        self._fn = fn
+        self._elem_spec = spec
 
-        # Split string
-        dataset = dataset.map(
-            lambda x, y: (tf.strings.split([x]).values,
-                          tf.strings.split([y]).values),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    def __call__(self, *args, **kwargs) -> Any:
+        return self._fn(*args, **kwargs)
 
-        # Append BOS and EOS
-        dataset = dataset.map(
-            lambda x, y: (
-                (tf.concat([x, [tf.constant(params.eos)]], axis=0),
-                 tf.concat([[tf.constant(params.bos)], y], axis=0)),
-                tf.concat([y, [tf.constant(params.eos)]], axis=0)),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    @property
+    def function(self):
+        return self._fn
 
-        dataset = dataset.map(
-            lambda x, y: ({
-                "source": x[0],
-                "source_length": tf.shape(x[0])[0],
-                "target": x[1],
-                "target_length": tf.shape(x[1])[0]
-            }, y),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
-        def bucket_boundaries(max_length, min_length=8, step=8):
-            x = min_length
-            boundaries = []
-
-            while x <= max_length:
-                boundaries.append(x + 1)
-                x += step
-
-            return boundaries
-
-        batch_size = params.batch_size
-        max_length = (params.max_length // 8) * 8
-        min_length = params.min_length
-        boundaries = bucket_boundaries(max_length)
-        batch_sizes = [max(1, batch_size // (x - 1))
-                       if not params.fixed_batch_size else batch_size
-                       for x in boundaries] + [1]
-
-        def element_length_func(x, y):
-            return tf.maximum(x["source_length"], x["target_length"])
-
-        def valid_size(x, y):
-            size = element_length_func(x, y)
-            return tf.logical_and(size >= min_length, size <= max_length)
-
-        transformation_fn = tf.data.experimental.bucket_by_sequence_length(
-            element_length_func,
-            boundaries,
-            batch_sizes,
-            padded_shapes=({
-                "source": tf.TensorShape([None]),
-                "source_length": tf.TensorShape([]),
-                "target": tf.TensorShape([None]),
-                "target_length": tf.TensorShape([])
-                }, tf.TensorShape([None])),
-            padding_values=({
-                "source": params.pad,
-                "source_length": 0,
-                "target": params.pad,
-                "target_length": 0
-                }, params.pad),
-            pad_to_bucket_boundary=False)
-
-        dataset = dataset.filter(valid_size)
-        dataset = dataset.apply(transformation_fn)
-
-        dataset = dataset.map(
-            lambda x, y: ({
-                "source": x["source"],
-                "source_mask": tf.sequence_mask(x["source_length"],
-                                                tf.shape(x["source"])[1],
-                                                tf.float32),
-                "target": x["target"],
-                "target_mask": tf.sequence_mask(x["target_length"],
-                                                tf.shape(x["target"])[1],
-                                                tf.float32)
-            }, y),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
-        return dataset
-
-    def eval_input_fn():
-        src_dataset = tf.data.TextLineDataset(filenames[0])
-        tgt_dataset = tf.data.TextLineDataset(filenames[1])
-        dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
-        dataset = dataset.shard(torch.distributed.get_world_size(),
-                                torch.distributed.get_rank())
-        dataset = dataset.prefetch(params.buffer_size)
-
-        # Split string
-        dataset = dataset.map(
-            lambda x, y: (tf.strings.split([x]).values,
-                          tf.strings.split([y]).values),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
-        # Append BOS and EOS
-        dataset = dataset.map(
-            lambda x, y: (
-                (tf.concat([x, [tf.constant(params.eos)]], axis=0),
-                 tf.concat([[tf.constant(params.bos)], y], axis=0)),
-                tf.concat([y, [tf.constant(params.eos)]], axis=0)),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
-        dataset = dataset.map(
-            lambda x, y: ({
-                "source": x[0],
-                "source_length": tf.shape(x[0])[0],
-                "target": x[1],
-                "target_length": tf.shape(x[1])[0]
-            }, y),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
-        # Batching
-        dataset = dataset.padded_batch(
-            params.decode_batch_size,
-            padded_shapes=({
-                "source": tf.TensorShape([None]),
-                "source_length": tf.TensorShape([]),
-                "target": tf.TensorShape([None]),
-                "target_length": tf.TensorShape([])
-                }, tf.TensorShape([None])),
-            padding_values=({
-                "source": params.pad,
-                "source_length": 0,
-                "target": params.pad,
-                "target_length": 0
-                }, params.pad))
-
-        dataset = dataset.map(
-            lambda x, y: ({
-                "source": x["source"],
-                "source_mask": tf.sequence_mask(x["source_length"],
-                                                tf.shape(x["source"])[1],
-                                                tf.float32),
-                "target": x["target"],
-                "target_mask": tf.sequence_mask(x["target_length"],
-                                                tf.shape(x["target"])[1],
-                                                tf.float32)
-            }, y),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
-        return dataset
-
-    def infer_input_fn():
-        sorted_key, sorted_data = sort_input_file(filenames)
-        dataset = tf.data.Dataset.from_tensor_slices(
-            tf.constant(sorted_data))
-        dataset = dataset.shard(torch.distributed.get_world_size(),
-                                torch.distributed.get_rank())
-
-        dataset = dataset.map(
-            lambda x: tf.strings.split([x]).values,
-            num_parallel_calls=tf.data.experimental.AUTOTUNE)
-        dataset = dataset.map(
-            lambda x: tf.concat([x, [tf.constant(params.eos)]], axis=0),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE)
-        dataset = dataset.map(
-            lambda x: {
-                "source": x,
-                "source_length": tf.shape(x)[0]
-            },
-            num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
-        dataset = dataset.padded_batch(
-            params.decode_batch_size,
-            padded_shapes={
-                "source": tf.TensorShape([None]),
-                "source_length": tf.TensorShape([])
-            },
-            padding_values={
-                "source": tf.constant(params.pad),
-                "source_length": 0
-            })
-
-        dataset = dataset.map(
-            lambda x: {
-                "source": x["source"],
-                "source_mask": tf.sequence_mask(x["source_length"],
-                                                tf.shape(x["source"])[1],
-                                                tf.float32),
-            },
-            num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
-        return sorted_key, dataset
-
-    if mode == "train":
-        return train_input_fn
-    if mode == "eval":
-        return eval_input_fn
-    elif mode == "infer":
-        return infer_input_fn
-    else:
-        raise ValueError("Unknown mode %s" % mode)
+    @property
+    def element_spec(self):
+        return self._elem_spec
 
 
-def get_dataset(filenames, mode, params):
-    input_fn = build_input_fn(filenames, mode, params)
+class Dataset(IterableDataset):
 
-    with tf.device("/cpu:0"):
-        dataset = input_fn()
+    def __init__(self):
+        self._iterator = None
 
-    return dataset
+    def __iter__(self) -> Iterator:
+        return Iterator(self)
+
+    @abc.abstractproperty
+    def _inputs(self) -> NoReturn:
+        raise NotImplementedError("Not implemented.")
+
+    @abc.abstractmethod
+    def copy(self) -> NoReturn:
+        raise NotImplementedError("Dataset.copy not implemented.")
+
+    @abc.abstractproperty
+    def element_spec(self) -> NoReturn:
+        raise NotImplementedError("Dataset.element_spec not implemented.")
+
+    @property
+    def name(self) -> str:
+        return "Dataset"
+
+    def new_iterator(self) -> Iterator:
+        return Iterator(self)
+
+    def background(self) -> "BackgroundDataset":
+        return BackgroundDataset(self)
+
+    def map(self, fn: MapFunc) -> "MapDataset":
+        return MapDataset(self, fn)
+
+    def padded_batch(self, batch_size: int, pad: int) -> "PaddedBatchDataset":
+        return PaddedBatchDataset(self, batch_size, pad)
+
+    def repeat(self, n: int) -> "RepeatDataset":
+        return RepeatDataset(self, n)
+
+    def shard(self, num_shards: int, index: int) -> "ShardDataset":
+        return ShardDataset(self, num_shards, index)
+
+    @abc.abstractmethod
+    def set_inputs(self, datasets: Tuple["Dataset"]) -> NoReturn:
+        raise NotImplementedError("Dataset.set_inputs not implemented.")
+
+    def tokenize(self, tokenizer: Tokenizer, bos: bytes = b"<bos>",
+                 eos: bytes = b"<eos>") -> "TokenizedLineDataset":
+        return TokenizedLineDataset(self, tokenizer, bos, eos)
+
+    @staticmethod
+    def bucket_by_sequence_length(dataset: "Dataset",
+                                  bucket_boundaries: List[int],
+                                  batch_sizes: List[int],
+                                  pad: int = 0,
+                                  min_length: int = -1,
+                                  max_length: int = 10000) -> "BucketDataset":
+        return BucketDataset(dataset, bucket_boundaries, batch_sizes, pad,
+                             min_length, max_length)
+
+    @staticmethod
+    def lookup(dataset: "Dataset", vocabulary: Dict[bytes, int], unk_id):
+        return LookupDataset(dataset, vocabulary, unk_id)
+
+    @staticmethod
+    def zip(datasets: Tuple["Dataset"]) -> "ZipDataset":
+        return ZipDataset(datasets)
+
+
+class DatasetSource(Dataset):
+
+    def _inputs(self):
+        return []
+
+
+class BackgroundDataset(Dataset):
+
+    def __init__(self, dataset: Dataset):
+        self._dataset = dataset
+
+        super(BackgroundDataset, self).__init__()
+
+    def __repr__(self) -> str:
+        return "<BackgroundDataset:%s>" % self._dataset
+
+    def _inputs(self):
+        return [self._dataset]
+
+    @property
+    def name(self):
+        return "BackgroundDataset"
+
+    @property
+    def element_spec(self):
+        return self._dataset._spec
+
+
+class BucketDataset(Dataset):
+
+    def __init__(self, dataset: Dataset, bucket_boundaries : List[int],
+                 batch_sizes: List[int], pad: int = 0, min_length: int = -1,
+                 max_length: int = 10000):
+        if not self._check_type(dataset.element_spec):
+            raise ValueError("The input dataset must produces an example of "
+                             "`List[int]` or `Tuple[List[int], ...]`")
+
+        self._dataset = dataset
+        self._pad = pad
+        self._bucket_boundaries = bucket_boundaries
+        self._batch_sizes = batch_sizes
+        self._min_length = min_length
+        self._max_length = max_length
+
+        _elem_spec = self._dataset.element_spec
+
+        if _elem_spec.elem_type is List[int]:
+            _elem_type = List[List[int]]
+            _elem_shape = "[None, None]"
+        else:
+            # Tuple[List[int], ...] -> Tuple[List[List[int]], ...]
+            args = _elem_spec.elem_type.__args__
+            args = [List[t] for t in args]
+            _elem_type = Tuple[tuple(args)]
+            _elem_shape = ",".join(["[None, None]" for _ in args])
+
+            if len(args) == 1:
+                _elem_shape = "(" + _elem_shape + ",)"
+            else:
+                _elem_shape = "(" + _elem_shape + ")"
+
+        self._spec = ElementSpec(_elem_type, _elem_shape)
+
+        super(BucketDataset, self).__init__()
+
+    def __repr__(self) -> str:
+        return "<BucketDataset:%s>" % self._dataset
+
+    def _inputs(self) -> List[Dataset]:
+        return [self._dataset]
+
+    def _check_type(self, elem_spec) -> bool:
+        if elem_spec.elem_type is List[int]:
+            return True
+        elif not isinstance(elem_spec.elem_type,
+                            type(Tuple[List[int], ...])):
+            return False
+        else:
+            args = elem_spec.elem_type.__args__
+
+            if len(args) == 0:
+                return False
+
+            for t in args:
+                if t is not List[int]:
+                    return False
+
+            return True
+
+    def copy(self) -> "BucketDataset":
+        return BucketDataset(self._dataset.copy(), self._bucket_boundaries,
+                             self._batch_sizes, self._pad)
+
+    @property
+    def name(self):
+        return "BucketDataset"
+
+    @property
+    def bucket_boundaries(self) -> List[int]:
+        return self._bucket_boundaries
+
+    @property
+    def batch_sizes(self) -> List[int]:
+        return self._batch_sizes
+
+    @property
+    def min_length(self) -> int:
+        return self._min_length
+
+    @property
+    def max_length(self) -> int:
+        return self._max_length
+
+    @property
+    def pad(self) -> bytes:
+        return self._pad
+
+    @property
+    def element_spec(self) -> ElementSpec:
+        return self._spec
+
+    def set_inputs(self, datasets: Tuple[Dataset]) -> None:
+        if len(datasets) != 1:
+            raise ValueError("``datasets'' must be a tuple with one dataset.")
+
+        dataset = datasets[0]
+
+        if not self._check_type(dataset.element_spec):
+            raise ValueError("The input dataset must produces an example of "
+                             "`List[int]` or `Tuple[List[int], ...]`")
+
+        self._dataset = dataset
+
+        _elem_spec = self._dataset.element_spec
+
+        if _elem_spec.elem_type is List[int]:
+            _elem_type = List[List[int]]
+            _elem_shape = "[None, None]"
+        else:
+            # Tuple[List[int], ...] -> Tuple[List[List[int]], ...]
+            args = _elem_spec.elem_type.__args__
+            args = [List[t] for t in args]
+            _elem_type = Tuple[tuple(args)]
+            _elem_shape = ",".join(["[None, None]" for _ in args])
+
+            if len(args) == 1:
+                _elem_shape = "(" + _elem_shape + ",)"
+            else:
+                _elem_shape = "(" + _elem_shape + ")"
+
+        self._spec = ElementSpec(_elem_type, _elem_shape)
+
+
+class FilterDataset(Dataset):
+
+    def __init__(self, dataset: Dataset, min_len: int, max_len: int):
+        if dataset.element_spec.elem_type is not List[int]:
+            raise ValueError("The input dataset must produces an example of "
+                             "`List[int]`.")
+
+        self._dataset = dataset
+        self._min_len = min_len
+        self._max_len = max_len
+
+        super(FilterDataset, self).__init__()
+
+    def __repr__(self) -> str:
+        return "<FilterDataset:%s>" % self._dataset
+
+    def _inputs(self) -> List[Dataset]:
+        return [self._dataset]
+
+    def copy(self) -> "FilterDataset":
+        return FilterDataset(self._dataset.copy(), self._min_len,
+                             self._max_len)
+
+    @property
+    def name(self) -> str:
+        return "FilterDataset"
+
+    @property
+    def max_len(self) -> int:
+        return self._max_len
+
+    @property
+    def min_len(self) -> int:
+        return self._min_len
+
+    @property
+    def element_spec(self) -> ElementSpec:
+        return self._dataset._spec
+
+    def set_inputs(self, datasets: Tuple[Dataset]) -> None:
+        if len(datasets) != 1:
+            raise ValueError("``datasets'' must be a tuple with one dataset.")
+
+        self._dataset = datasets[0]
+
+
+class LookupDataset(Dataset):
+
+    def __init__(self, dataset: Dataset, vocabulary: Vocabulary,
+                 unk_id : int = -1):
+        if dataset.element_spec.elem_type is not List[bytes]:
+            raise ValueError("The input dataset must produces an example of "
+                             "`List[bytes]`.")
+        self._dataset = dataset
+        self._vocab = vocabulary
+        self._unk_id = unk_id
+        self._spec = ElementSpec(List[int], "[None]")
+        super(LookupDataset, self).__init__()
+
+    def __repr__(self) -> str:
+        return "<LookupDataset:%s>" % self._dataset
+
+    def _inputs(self) -> List[Dataset]:
+        return [self._dataset]
+
+    def copy(self) -> "LookupDataset":
+        return LookupDataset(self._dataset.copy(), self._vocab, self._unk_id)
+
+    @property
+    def name(self) -> str:
+        return "LookupDataset"
+
+    @property
+    def unk_id(self) -> int:
+        return self._unk_id
+
+    @property
+    def vocabulary(self) -> Vocabulary:
+        return self._vocab
+
+    @property
+    def element_spec(self) -> ElementSpec:
+        return self._spec
+
+    def set_inputs(self, datasets: Tuple[Dataset]) -> None:
+        if len(datasets) != 1:
+            raise ValueError("``datasets'' must be a tuple with one dataset.")
+
+        self._dataset = datasets[0]
+
+
+class MapDataset(Dataset):
+
+    def __init__(self, dataset: Dataset, fn: MapFunc):
+        if not isinstance(fn, MapFunc):
+            raise ValueError("fn must be an instance of MapFunc.")
+
+        self._dataset = dataset
+        self._fn = fn
+        self._spec = fn.element_spec
+
+        super(MapDataset, self).__init__()
+
+    def __repr__(self) -> str:
+        return "<MapDataset:%s>" % str(self._dataset)
+
+    def copy(self) -> "MapDataset":
+        return MapDataset(self._dataset, self._fn)
+
+    @property
+    def name(self) -> str:
+        return "MapDataset"
+
+    @property
+    def element_spec(self) -> ElementSpec:
+        return self._spec
+
+
+class PaddedBatchDataset(Dataset):
+
+    def __init__(self, dataset: Dataset, batch_size: int, pad: int):
+        self._dataset = dataset
+        self._batch_size = batch_size
+        self._pad = pad
+
+        _elem_spec = self._dataset.element_spec
+
+        if _elem_spec.elem_type is List[int]:
+            _elem_type = List[List[int]]
+            _elem_shape = "[None, None]"
+        else:
+            # Tuple[List[int], ...] -> Tuple[List[List[int]], ...]
+            args = _elem_spec.elem_type.__args__
+            args = [List[t] for t in args]
+            _elem_type = Tuple[tuple(args)]
+            _elem_shape = ",".join(["[None, None]" for _ in args])
+
+            if len(args) == 1:
+                _elem_shape = "(" + _elem_shape + ",)"
+            else:
+                _elem_shape = "(" + _elem_shape + ")"
+
+        self._spec = ElementSpec(_elem_type, _elem_shape)
+
+        super(PaddedBatchDataset, self).__init__()
+
+    def __repr__(self) -> str:
+        return "<PaddedDataset:%s>" % str(self._dataset)
+
+    def _inputs(self) -> List[Dataset]:
+        return [self._dataset]
+
+    def copy(self) -> "PaddedDataset":
+        return PaddedBatchDataset(self._dataset.copy(),
+                                  self._batch_size, self._pad_id)
+
+    @property
+    def name(self) -> str:
+        return "PaddedBatchDataset"
+
+    @property
+    def batch_size(self) -> int:
+        return self._batch_size
+
+    @property
+    def pad(self) -> int:
+        return self._pad
+
+    @property
+    def element_spec(self) -> ElementSpec:
+        return self._spec
+
+
+class RepeatDataset(Dataset):
+
+    def __init__(self, dataset: Dataset, count: int = None):
+        self._dataset = dataset
+        self._count = -1 if count is None else count
+        super(RepeatDataset, self).__init__()
+
+    def __repr__(self) -> str:
+        return "<RepeatDataset:%s,%d>" % (self._dataset, self._count)
+
+    def _inputs(self) -> List[Dataset]:
+        return [self._dataset]
+
+    def copy(self) -> "RepeatDataset":
+        return RepeatDataset(self._dataset.copy(), self._count)
+
+    @property
+    def name(self) -> str:
+        return "RepeatDataset"
+
+    @property
+    def count(self) -> int:
+        return self._count
+
+    @property
+    def element_spec(self) -> ElementSpec:
+        self._dataset.element_spec
+
+    def set_inputs(self, datasets: Tuple[Dataset]) -> None:
+        if len(datasets) != 1:
+            raise ValueError("``datasets'' must be a tuple with one dataset.")
+
+        self._dataset = datasets[0]
+
+
+class ShardDataset(Dataset):
+
+    def __init__(self, dataset: Dataset, num_shards : int, index : int):
+        self._dataset = dataset
+        self._num_shards = num_shards
+        self._index = index
+        super(ShardDataset, self).__init__()
+
+    def __repr__(self) -> str:
+        info = (self._dataset, self._num_shards, self._index)
+        return "<ShardDataset:%s,%d,%d>" % info
+
+    def _inputs(self) -> List[Dataset]:
+        return [self._dataset]
+
+    def copy(self) -> "ShardDataset":
+        return ShardDataset(self._dataset.copy(), self._num_shards,
+                            self._index)
+
+    @property
+    def name(self) -> str:
+        return "ShardDataset"
+
+    @property
+    def num_shards(self) -> int:
+        return self._num_shards
+
+    @property
+    def index(self) -> int:
+        return self._index
+
+    @property
+    def element_spec(self) -> ElementSpec:
+        return self._dataset.element_spec
+
+    def set_inputs(self, datasets: Tuple[Dataset]) -> None:
+        if len(datasets) != 1:
+            raise ValueError("``datasets'' must be a tuple with one dataset.")
+
+        self._dataset = datasets[0]
+
+
+class TextLineDataset(DatasetSource):
+
+    def __init__(self, buffer_or_filename: Union[List, str]):
+        self._source = buffer_or_filename
+        self._spec = ElementSpec(bytes, "[]")
+        super(TextLineDataset, self).__init__()
+
+    def __repr__(self) -> str:
+        return "<TextLineDataset:%s>" % self._filename
+
+    def copy(self) -> "TextLineDataset":
+        return TextLineDataset(self._source)
+
+    @property
+    def name(self) -> str:
+        return "TextLineDataset"
+
+    @property
+    def input_source(self) -> Union[List, str]:
+        return self._source
+
+    @property
+    def element_spec(self) -> ElementSpec:
+        return self._spec
+
+    def set_inputs(self, datasets: Tuple[Dataset]) -> None:
+        return None
+
+
+class TokenizedLineDataset(Dataset):
+
+    def __init__(self, dataset: TextLineDataset, tokenizer: Tokenizer,
+                 bos: bytes = b"<bos>", eos: bytes = b"<eos>"):
+        elem_spec = dataset.element_spec
+
+        if elem_spec.elem_type is not bytes or elem_spec.shape != "[]":
+            raise ValueError("TokenizedLineDataset only accepts a dataset with"
+                              " ElementSpec(bytes, '[None]')")
+
+        self._dataset = dataset
+        self._tokenizer = tokenizer
+        self._bos = bos
+        self._eos = eos
+        self._spec = ElementSpec(List[bytes], "[None]")
+        super(TokenizedLineDataset, self).__init__()
+
+    def __repr__(self) -> str:
+        return "<TokenizedLineDataset:%s>" % self._dataset
+
+    def _inputs(self) -> List[Dataset]:
+        return [self._dataset]
+
+    def copy(self) -> "TokenizedLineDataset":
+        return TokenizedLineDataset(self._dataset.copy(), self._tokenizer,
+                                    self._bos, self._eos)
+
+    @property
+    def name(self) -> str:
+        return "TokenizedLineDataset"
+
+    @property
+    def element_spec(self) -> ElementSpec:
+        return self._spec
+
+    @property
+    def tokenizer(self) -> Tokenizer:
+        return self._tokenizer
+
+    @property
+    def bos(self) -> bytes:
+        return self._bos
+
+    @property
+    def eos(self) -> bytes:
+        return self._eos
+
+    def set_inputs(self, datasets: Tuple[Dataset]) -> None:
+        if len(datasets) != 1:
+            raise ValueError("``datasets'' must be a tuple with one dataset.")
+
+        self._dataset = datasets[0]
+
+
+class ZipDataset(Dataset):
+
+    def __init__(self, datasets: Tuple[Dataset]):
+        if not isinstance(datasets, tuple):
+            raise ValueError("ZipDataset expects a tuple of datasets as "
+                             "the input.")
+
+        self._datasets = datasets
+        self._num_inputs = len(datasets)
+
+        _type = tuple(dataset.element_spec.elem_type for dataset in datasets)
+        _type = Tuple[_type]
+        _shape = ",".join([dataset.element_spec.shape for dataset in datasets])
+
+        if len(self._datasets) == 1:
+            _shape = "(" + _shape + ",)"
+        else:
+            _shape = "(" + _shape + ",)"
+
+        self._spec = ElementSpec(_type, _shape)
+
+        super(ZipDataset, self).__init__()
+
+    def __repr__(self) -> str:
+        if len(self._datasets == 1):
+            ds_repr = "(%s,)" % self._datasets[0]
+        else:
+            ds_repr = ",".join([str(ds) for ds in self._datasets])
+        return "<ZipDataset:(%s,)>" % ds_repr
+
+    def _inputs(self) -> List[Dataset]:
+        return list(self._datasets)
+
+    def copy(self) -> "ZipDataset":
+        datasets = tuple([ds.copy() for ds in self._datasets])
+        return ZipDataset(datasets)
+
+    @property
+    def name(self) -> str:
+        return "ZipDataset"
+
+    @property
+    def num_inputs(self) -> int:
+        return self._num_inputs
+
+    @property
+    def element_spec(self) -> ElementSpec:
+        return self._spec
+
+    def set_inputs(self, datasets: Tuple[Dataset]) -> None:
+        self._datasets = datasets
+
+        _type = tuple(dataset.element_spec.elem_type for dataset in datasets)
+        _type = Tuple[_type]
+        _shape = ",".join([dataset.element_spec.shape for dataset in datasets])
+
+        if len(self._datasets) == 1:
+            _shape = "(" + _shape + ",)"
+        else:
+            _shape = "(" + _shape + ",)"
+
+        self._spec = ElementSpec(_type, _shape)
