@@ -24,8 +24,6 @@ import thumt.utils as utils
 import thumt.models as models
 
 logging.getLogger().setLevel(logging.INFO)
-# just show error messages.
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 
 def parse_args():
@@ -114,17 +112,9 @@ def override_params(params, args):
     if args.parameters:
         params.parse(args.parameters.lower())
 
-    src_vocab, src_w2idx, src_idx2w = data.load_vocabulary(args.vocabulary[0])
-    tgt_vocab, tgt_w2idx, tgt_idx2w = data.load_vocabulary(args.vocabulary[1])
-
     params.vocabulary = {
-        "source": src_vocab, "target": tgt_vocab
-    }
-    params.lookup = {
-        "source": src_w2idx, "target": tgt_w2idx
-    }
-    params.mapping = {
-        "source": src_idx2w, "target": tgt_idx2w
+        "source": data.Vocabulary(args.vocabulary[0]),
+        "target": data.Vocabulary(args.vocabulary[1])
     }
 
     return params
@@ -150,6 +140,7 @@ def main(args):
     params = import_params(args.checkpoint, args.model, params)
     params = override_params(params, args)
 
+    params.device = params.device_list[args.local_rank]
     dist.init_process_group("nccl", init_method=args.url,
                             rank=args.local_rank,
                             world_size=len(params.device_list))
@@ -178,7 +169,7 @@ def main(args):
         model.load_state_dict(
             torch.load(utils.latest_checkpoint(args.checkpoint),
                        map_location="cpu")["model"])
-        dataset = data.get_dataset(args.input, "eval", params)
+        dataset = data.MTPipeline.get_eval_dataset(args.input, params)
         data_iter = iter(dataset)
         counter = 0
         pad_max = 1024
@@ -200,7 +191,6 @@ def main(args):
         while True:
             try:
                 features = next(data_iter)
-                features = data.lookup(features, "eval", params)
                 batch_size = features[0]["source"].shape[0]
             except:
                 features = {
