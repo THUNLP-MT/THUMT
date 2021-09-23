@@ -1,14 +1,13 @@
 # coding=utf-8
-# Copyright 2017-Present The THUMT Authors
-
 import abc
 import torch
+import typing
 
 from collections.abc import Sequence
 from torch.utils.data import IterableDataset
-from thumt.data.iterator import Iterator
-from thumt.data.vocab import Vocabulary
-from thumt.tokenizers import Tokenizer
+from twmt.data.iterator import Iterator
+from twmt.data.vocab import Vocabulary
+from twmt.tokenizers import Tokenizer
 from typing import Any, Dict, NoReturn, List, Tuple, Union, Callable
 
 
@@ -53,7 +52,7 @@ class Dataset(IterableDataset):
     def __init__(self):
         self._iterator = None
 
-    def __iter__(self) -> Iterator:
+    def __iter__(self) -> typing.Iterator:
         return Iterator(self)
 
     @abc.abstractproperty
@@ -136,6 +135,9 @@ class BackgroundDataset(Dataset):
     def _inputs(self):
         return [self._dataset]
 
+    def copy(self) -> "BackgroundDataset":
+        return BackgroundDataset(self._dataset.copy())
+
     @property
     def name(self):
         return "BackgroundDataset"
@@ -143,6 +145,9 @@ class BackgroundDataset(Dataset):
     @property
     def element_spec(self):
         return self._dataset._spec
+
+    def set_inputs(self, datasets: Tuple[Dataset]):
+        return None
 
 
 class BucketDataset(Dataset):
@@ -387,6 +392,12 @@ class MapDataset(Dataset):
     def element_spec(self) -> ElementSpec:
         return self._spec
 
+    def set_inputs(self, datasets: Tuple[Dataset]):
+        return None
+
+    def _inputs(self) -> List[Dataset]:
+        return [self._dataset]
+
 
 class PaddedBatchDataset(Dataset):
 
@@ -425,6 +436,9 @@ class PaddedBatchDataset(Dataset):
     def copy(self) -> "PaddedDataset":
         return PaddedBatchDataset(self._dataset.copy(),
                                   self._batch_size, self._pad_id)
+
+    def set_inputs(self, datasets: Tuple[Dataset]):
+        return None
 
     @property
     def name(self) -> str:
